@@ -52,7 +52,7 @@ Celem projektu jest wykonanie analizy porówanwczej dla różnych zbiorów danyc
 
 Rezultatem prac powinien być krótki artykuł naukowy (40 pkt.), minimum 3 strony umieszczony jako rozdział książki online, która powstanie w ramach przedmiotu. Podział punktów w ramach artykułu
 * Abstrakt: 5 pkt.
-* Introduction + Motivation: 10 pkt
+* Wstęp + Motywacja: 10 pkt
 * Opis metodologii i wyników: 15 pkt.
 * Wnioski: 10 pkt.
 
