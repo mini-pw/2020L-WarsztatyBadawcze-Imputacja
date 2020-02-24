@@ -10,9 +10,9 @@
 
 * 2020-03-03 - typy braków danych, metody ad-hoc
    
-* 2020-03-20 - algorytmy machine learningu, metody oceny jakości klasyfikatorów
+* 2020-03-10 - algorytmy machine learningu, metody oceny jakości klasyfikatorów
 
-* 2020-03-27 - praca domowa 1
+* 2020-03-17 - praca domowa 1
 
 * 2020-03-24 - praca domowa 1
 
