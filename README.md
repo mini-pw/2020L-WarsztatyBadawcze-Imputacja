@@ -43,4 +43,21 @@ Należy przygotować prezentację o wybranej technice imputacji danych. Listę w
 
 ### Praca domowa 1 
 
-### Praca domowa 2 
+
+### Praca domowa 2
+
+
+## Projekt (55 pkt.)
+Celem projektu jest wykonanie analizy porówanwczej dla różnych zbiorów danych z brakującymi danymi jakości działania różnych technik imputacji braków danych i różnych algorytmów uczenia maszynowego.
+
+Rezultatem prac powinien być krótki artykuł naukowy (40 pkt.), minimum 3 strony umieszczony jako rozdział książki online, która powstanie w ramach przedmiotu. Podział punktów w ramach artykułu
+* Abstrakt: 5 pkt.
+* Introduction + Motivation: 10 pkt
+* Opis metodologii i wyników: 15 pkt.
+* Wnioski: 10 pkt.
+
+Projekt nalezy zaprezentować w postaci Lightning Talka na jednym z ostatnich wykładów (15 pkt.).
+
+
+## Blog (15 pkt.)
+Informacje w [repzytorium Wykładu](https://github.com/mini-pw/2020L-WarsztatyBadawcze)
