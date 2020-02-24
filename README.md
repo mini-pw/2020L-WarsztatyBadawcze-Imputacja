@@ -3,7 +3,7 @@
 ## Plan zajęć
 * 2020-02-25 - O co chodzi z artykułami naukowymi?
     - [Learning Multiple Defaults for Machine Learning Algorithms](https://arxiv.org/pdf/1811.09409.pdf) 
-    - [idmTPreg: Regression Model for Progressive Illness Death Data](https://journal.r-project.org/archive/2018/RJ-2018-081/RJ-2018-081.pdf)
+    - [FHDI: An R Package for Fractional Hot Deck Imputation](https://journal.r-project.org/archive/2018/RJ-2018-020/RJ-2018-020.pdf)
     
     Warto zobaczyć:
     - [Limitations of Interpretable Machine Learning Methods](https://compstat-lmu.github.io/iml_methods_limitations/)
