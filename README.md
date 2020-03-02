@@ -42,7 +42,14 @@ Należy przygotować prezentację o wybranej technice imputacji danych. Listę w
 ## Prace domowe (15 pkt.)
 
 ### Praca domowa 1 
+Praca domowa wykonywana jest pojednczo. 
+Należy wybrać jeden zbiór danych z [OpenML100](https://www.openml.org/search?q=tags.tag%3AOpenML100&type=data&table=1&size=100), w którym występują braki danych i dla wybranego zbioru danych:
 
+- wykonać analizę eksploracyjną,
+- zastosować proste techniki obróbki brakujących danych (usunięcie kolumn, wierszy, uzupełnienie średnią lub medianą),
+- wytrenować jeden algorytm uczenia maszynowego dla każdego sposobu uzupełnienia braków danych
+
+Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowaie wyników. 
 
 ### Praca domowa 2
 
