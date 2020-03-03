@@ -37,12 +37,30 @@
 * 2020-06-16 - ?
 
 ## Prezentacje (15 pkt.)
-Należy przygotować prezentację o wybranej technice imputacji danych. Listę wybranych technik zamieszczę wkrótce.
+
+
+Należy przygotować prezentację o wybranej pakiecie do imputacji danych. Prezentacje należy wykonać w grupach, najlepiej grupach projektowych. Oprócz krótkiej prezentacji z wprowadzeniem do technik użytych w danym pakiecie należy przygotować krótki skrypt z przykładem użycia pakietu. Propozycje pakietów:
+- [Amelia](https://cran.r-project.org/web/packages/Amelia/index.html)
+- [softImpute](https://cran.r-project.org/web/packages/softImpute/index.html)
+- [missMDA](https://cran.r-project.org/web/packages/missMDA/index.html)
+- [mice](https://cran.r-project.org/web/packages/mice/index.html)
+- [missForest](https://cran.r-project.org/web/packages/missForest/index.html)
+- [FHDI](https://cran.r-project.org/web/packages/FHDI/index.html)
+
+Inne pakiety R dotyczace technik imputacji można znaleźć [tutaj](https://cran.r-project.org/web/views/MissingData.html)
+
 
 ## Prace domowe (15 pkt.)
 
 ### Praca domowa 1 
+Praca domowa wykonywana jest pojednczo. 
+Należy wybrać jeden zbiór danych z [OpenML100](https://www.openml.org/search?q=tags.tag%3AOpenML100&type=data&table=1&size=100), w którym występują braki danych i dla wybranego zbioru danych:
 
+- wykonać analizę eksploracyjną,
+- zastosować proste techniki obróbki brakujących danych (usunięcie kolumn, wierszy, uzupełnienie średnią lub medianą),
+- wytrenować jeden algorytm uczenia maszynowego dla każdego sposobu uzupełnienia braków danych
+
+Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowaie wyników. 
 
 ### Praca domowa 2
 
