@@ -12,6 +12,9 @@
    
 * 2020-03-10 - algorytmy machine learningu, metody oceny jakości klasyfikatorów
 
+ - [Wstęp do mlr3](https://mlr3.mlr-org.com/reference/index.html)
+ - [Tutorial mlr3](https://mlr3book.mlr-org.com/introduction.html)
+
 * 2020-03-17 - praca domowa 1
 
 * 2020-03-24 - praca domowa 1
@@ -60,7 +63,7 @@ Należy wybrać jeden zbiór danych z [OpenML100](https://www.openml.org/search?
 - zastosować proste techniki obróbki brakujących danych (usunięcie kolumn, wierszy, uzupełnienie średnią lub medianą),
 - wytrenować jeden algorytm uczenia maszynowego dla każdego sposobu uzupełnienia braków danych
 
-Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowaie wyników. 
+Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowanie wyników. Na zajęciach każdy powinien zaprezentować 5 min podsumowanie.
 
 ### Praca domowa 2
 
