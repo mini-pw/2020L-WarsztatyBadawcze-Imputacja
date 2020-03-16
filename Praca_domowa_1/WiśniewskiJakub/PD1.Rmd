@@ -218,11 +218,14 @@ test3 <- categorical_input_mode(test3)
 ```{r}
 
 
-set.seed(123)
+acc <- c(0,0,0)
+
+for (i in 1:100){
+
 model_rf_1 <- randomForest(class ~., data = train1, probability = TRUE)
-set.seed(123)
+
 model_rf_2 <- randomForest(class ~., data = train2, probability = TRUE)
-set.seed(123)
+
 model_rf_3 <- randomForest(class ~., data = train3, probability = TRUE)
 
 pred1 <- predict(model_rf_1, newdata = test1)
@@ -230,14 +233,14 @@ pred2 <- predict(model_rf_2, newdata = test2)
 pred3 <- predict(model_rf_3, newdata = test3)
 
 
-acc <- c(0,0,0)
-acc[1] <-  sum(test1$class == pred1)/length(pred1)
-acc[2] <-  sum(test2$class == pred2)/length(pred2)
-acc[3] <-  sum(test3$class == pred3)/length(pred3)
+acc[1] <- acc[1] + sum(test1$class == pred1)/length(pred1)
+acc[2] <- acc[2] +  sum(test2$class == pred2)/length(pred2)
+acc[3] <- acc[3] + sum(test3$class == pred3)/length(pred3)
 
-
-acc
+}
+acc/100
 
 ```
 
-
+## 5. Podsumowanie
+Jak dało się wywnioskować najlepszym narzędziem okazało okazało się wstawienie mediany i mody, aczkolwiek brakujących danych było tak mało, że ta różnica jest znikoma. Lasy losowe również nie dają jednoznacznych wyników, bo są "losowe". Dlatego postanowiłem wziąć średnią z 100 modeli, co nadaje większej pewności wynikom. Również bez zaskoczeń okazało się to, że model uczony na zbiorze z mniejszą ilością kolumn wypadł najgorzej.
