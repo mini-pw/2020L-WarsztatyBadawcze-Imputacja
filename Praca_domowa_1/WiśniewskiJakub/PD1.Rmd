@@ -82,30 +82,30 @@ Jak widzimy, nie ma zbyt wielu missing values.
 DataExplorer::plot_missing(df)
 ```
    
-Ani braki nie wydają się również być ze sobą połączone, chociaż wartości tych jest za mało, żeby ocenić.
+Braki nie wydają się również być ze sobą połączone, chociaż wartości tych jest za mało, żeby ocenić.
 ```{r}
 gg_miss_upset(df)
 ```
 
 ### 1.2 Rozkłady kolumn
-Nasze Kolumny, które mają rozkłady dyskretne, prezentują sie tak:
+Kolumny, które mają rozkłady dyskretne, prezentują sie tak:
 ```{r}
 DataExplorer::plot_bar(df)
 ```
 
-Zmienne ciągłe nie mają rozkładów normalnych. Jedyną zmienną, która chociaż troszkę przypomina normalny, to zmienna A2   
+Zmienne ciągłe nie mają rozkładów normalnych. Jedyną zmienną, której rozkład chociaż troszkę przypomina normalny, to zmienna A2   
 ```{r}
 DataExplorer::plot_histogram(df)
 ```
    
 ## 3. Zaawansowana Analiza  
    
-Sprawdźmy, jak bardzo różni się zmienna A2 od rozkładu normalnego . Widzimy, że na "ogonach" odbiega on znacznie od rozkładu normalnego.
+Sprawdźmy, jak bardzo różni się rozkład zmiennej A2 od rozkładu normalnego . Widzimy, że na "ogonach" odbiega on znacznie od rozkładu normalnego.
 ```{r}
 DataExplorer::plot_qq(df$A2)
 ```
 
-Niektóre dane są ze sobą mocno skorelowane. Przykładowo zmienne ciągłe zdają się być ze sobą skorelowane na poziomie 0.3-0.5.
+Niektóre dane są ze sobą skorelowane. Przykładowo zmienne ciągłe zdają się być ze sobą skorelowane na poziomie 0.3-0.5.
 ```{r}
 DataExplorer::plot_correlation(na.omit(df))
 ```
