@@ -1,0 +1,392 @@
+---
+title: "Praca Domowa I"
+author: "Paulina Przybyłek"
+date: "15 marca 2020"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(warning  = FALSE)
+knitr::opts_chunk$set(message  = FALSE)
+library(dplyr)
+library(ggplot2)
+library(DataExplorer)
+library(OpenML)
+library(kableExtra)
+library(visdat)
+library(naniar)
+library(VIM)
+library(mice)
+library(Hmisc)
+library(mlr3)
+library(mlr3learners)
+```
+
+## Wprowadzenie
+
+***
+
+Zajmiemy się analizą zbioru **sick**, pochodzącego z OpenML100. Zbiór ten zawiera rekordy z badaniami pacjentów zebrane w roku 1987. Targetem w **sick** jest kolumna class, która określa czy dany pacjent ma chorobę tarczycy czy nie. Wszystkich kolumn jest 30 i wnoszą one informacje o danym pacjencie. Najpierw zajmiemy się analizą co dokładnie znajduje się w zbiorze, a nastepnie przeprowadzimy techniki obróbki braków danych (wiemy, że występują ze strony OpenML) oraz wytrenujemy algorytm machine learningowy na przygotowanym zbiorze.
+
+### Wczytanie danych
+
+***
+
+Dane możemy pobrać prosto ze strony https://www.openml.org/d/38 albo wykorzystać pakiet OpenML, zastosujemy ten drugi sposób - wszystkie kody znajdują się w pliku .Rmd. Spójrzmy od razu na to, jak zbiór się prezentuje. 
+
+```{r data}
+data <- getOMLDataSet(data.name = "sick") %>% as.data.frame()
+kable(head(data), caption = "Tab.1. Fragment ramki danych") %>%
+  kable_styling() %>% 
+    scroll_box(width = "900px")
+```
+
+### Przedstawienie krótko zbioru danych
+
+***
+
+Wiemy już jaki mamy zbiór i jakie zawiera on dane, więc przyjrzyjmy się im teraz dokładniej. Zacznijmy od sprawdzenia typów danych.
+
+```{r types}
+str(data)
+```
+
+Duża ilość danych może utrudniać odczytanie ich, ale po przyjrzeniu się można zauważyć, że spora część kolumn jest kategoryczna i zawiera tylko informacje "f" i "t", czyli odpowiednio fałsz i prawda. Kolumny o takich wartościach przedstawiają informacje m.in. o ciąży, chorobie, podawanego litu czy różnych hormonów i leków, występujących wałów tarczycy, niedoczynności przysadki itp. Wartości numeryczne (ciągłe) to wiek oraz zmierzone wartości hormonów. Dodatkowo mamy daną płeć pacjenta i nasz target - określenie czy pacjent ma chorą tarczycę czy nie.
+
+## Analiza danych
+
+***
+
+Teraz sprawdźmy statystyki podsumowujące dla naszych danych - kolumn mamy 30, więc było by to nieczytelne, jednak ciekawe statystyki można uzyskać z danych ciągłych i na takie tylko spójrzmy.
+
+```{r statistics}
+kable(summary(data %>% select(1,18,20,22,24,26,28)), caption = "Tab.2. Statystyki danych ciągłych") %>% kable_styling()
+```
+
+Mając takie statystyki, możemy powiedzieć coś więcej o danych. Wszystkich obserwacji jest 3772, czyli kolumna **TBG** zawiera same braki danych. Skoro o nich mowa, to w ostatnim wierszu mamy ilość brakujących obserwacji w każdej z kolumn. Warto zauważyć, że nie mamy wieku jednego z pacjentów a inny pacjent ma podany wiek 455, co jest niemożliwe do osiągnięcia - są to wiersze o których trzeba pamiętać przy późniejszej obróbce. Skoro wiek mógł być podany za wysoki niż jest to możliwe to sprawdziłam, czy inne dane są osiągalne - są to wartości hormonów i w historii medycyny zdarzały się takie wartości, więc tutaj się wszystko zgadza. 
+
+### Brakujące wartości (braki danych)
+
+***
+
+Skoro już przyjrzeliśmy się statystykom, gdzie pokazane zostały braki danych to przyjrzyjmy się im teraz dokładniej. 
+
+```{r missing_values}
+vis_miss(data, cluster = TRUE) + 
+  labs(title = "Fig.1. Brakujące dane wraz z rozłożeniem ich w zbiorze",
+       y = "Obserwacje")
+
+gg_miss_var(data, 
+            show_pct = TRUE) + 
+  ylim(0, 100) +
+  labs(title = "Fig.2. Procenty brakujących danych dla kolumn w zbiorze",
+       x = "Obserwacje",
+       y = "% braków danych")
+```
+
+Brakujących wartości mamy 5.4%, nie jest to dużo moim zdaniem, jednak wykluczona jest jedna cała kolumna, a wszystkie braki skupiają się na 8 kolumnach, gdzie wśród jednej braków z obserwacji z kolumny jest aż 20%, to odbiera jedną piątą obserwacji do analizy tego zbioru. Tak jak braki w wartościach mierzalnych występować mogą, gdy coś nie zostało zmierzone, tak przy wieku i płci zastanawia mnie czy nie była znana bo ktoś nie chciał podać czy zapomniano je wziąć od pacjenta? Przyjrzyjmy się ile obserwacji jest z brakami danych w liczbach:
+
+```{r}
+kable(miss_var_summary(data), caption = "Tab.3. Ogląd brakujących wartości dla kolumn") %>% kable_styling()
+```
+
+W kolumnie o nazwie n_miss mamy ilość obserwacji, a pct_miss wskazuje znany nam już procent z wykresu Fig.1. Tutaj bardziej widoczne jest to, że kolumna z wiekiem też ma brak danych co na wykresie mogło umknąć.
+
+### Rozkłady zmiennych
+
+***
+
+Pokazanie wszystkich rozkładów zmiennych byłoby niezbyt czytelne, więc skupimy się na kilku. Jednak, skoro nie będzie ich na wykresach to wspomnę o tym, że rozkłady zmiennych kategorycznych są do siebie bardzo podobne, większa ilość obserwacji to "f", czyli nie dokonano danej rzeczy, o której mowa w kolumnie (z wykluczeniem kolumn _measured, gdzie jest odwrotnie). Poniżej przedstawiono wykresy rozkładów dla wybranych kolumn i bez wcześniejszej obróbki ich (rozkłady nie uwzględniają braków danych, z pominięciem dyskretnych).
+
+```{r distribution}
+plot_bar(data %>% select(2, 29, 30), ggtheme = theme_bw(), title = "Fig.3. Rozkłady wybranych zmiennych dyskretnych")
+plot_histogram(data, ggtheme = theme_bw(), title = "Fig.4. Rozkłady zmiennych ciągłych")
+```
+
+Krótkie wybrane wnioski z przedstawionych wykresów:
+
+- W kolumnie class, naszym targecie, wartości pozytywnej, oznaczającej chorobę jest zdecydowanie mniej niż negatywnych wyników. 
+
+- Przebadano więcej kobiet niż mężczyzn.
+
+- Rozkład wieku uwzględnił tę dziwną wartość 455, ale przyglądając się widzimy, że większość osób jest w wieku około 60 lat.
+
+- TSH ma bardzą duży zakres wartości osi OX, jednak więkość wyników jest niska.
+
+Wróćmy do wieku i usuńmy tę dziwną wartość, która może potem zakrzywiać wyniki.
+
+```{r age}
+data <- data %>% filter(age < 455)
+summary(data$age)
+```
+
+Teraz maksymalny wiek jest o całkiem możliwej wartości do osiągnięcia przez człowieka.
+
+### Zależności między zmiennymi
+
+***
+
+Kolumny zawierające wartości zmierzonych hormonów mogą być od siebie zależne. Na przykład TSH pobudza tarczycę do wytwarzania hormonów T4 i T3, a FTI to indeks stanu tarczycy, kóty wylicza się przy wykorzystaniu ilości hormonu TT4. Analizę poniższej macierzy zależności pomiędzy hormonami pozostawiam czytelnikowi.
+
+```{r}
+marginmatrix(data %>% select(18,20,22,24,26))
+```
+
+## Podział zbioru na treningowy i testowy
+
+***
+
+Zanim zastosujemy techniki imputacji braków danych musimy przygotować zbiór danych. Podzielimy go na zbiór treningowy i testowy. Na pierwszym wytrenujemy model uczenia maszynowego, a drugim sprawdzimy jego jakość przewidywań. 
+
+```{r, echo = TRUE}
+set.seed(123)
+id_train <- sample(1:nrow(data), 0.8 * nrow(data))
+data_train <- data[id_train, ]
+id_test <- setdiff(1:nrow(data), id_train)
+data_test <- data[id_test, ]
+```
+
+Poniższe wykresy przedstawiają jaką ilość obsrrwacji mamy w danym podziale na zbiory. Zbiór treningowy to 80% wszystkich obserwacji.
+
+```{r}
+ggplot(data_train, aes(x= age, y = T3, col = Class))+
+  geom_point(alpha = 0.8) +
+  theme_bw() +
+  labs(title= "Fig.6. Zbiór treningowy - ogląd obserwacji na podstawie wykresu")
+
+ggplot(data_test, aes(x= age, y = T3))+
+  geom_point() +
+  theme_bw() +
+  labs(title= "Fig.7. Zbiór testowy - ogląd obserwacji na podstawie wykresu")
+```
+
+
+UWAGA! Pamiętajmy o usuniętym wierszu z wiekiem równym 455. Nie występuje on już w naszym zbiorze.
+
+## Techniki obróbki braków danych
+
+***
+
+Kiedy znamy już trochę zbiór możemy zająć się obróbką braków danych, aby przygotować dane do zastosowania algorytmów z uczenia maszynowego. Takie algorytmy nie radzą sobie z brakami danych, więc wykorzystamy kilka różnych technik uzupełniania ich, a potem zbierzemy wnioski z tego jak algorytm zadziałał na poprawieonym zbiorze.
+
+Przy imputacji, nie będziemy brać pod uwagę kolumny, którą mamy przewidywać. Dodatkowo, będziemy uzupełniać nasz zbiór oddzielnie - najpierw imputacja braków danych na treningowym, a potem ta sama wartość uzupełni zbiór testowy. 
+
+### Usunięcie wierszy z brakami danych
+
+***
+
+Zacznijmy od usunięcia wierszy, w których występuje brak danych. Poniżej mamy ilość wierszy jaka nam została z wierszy, jakie były na początku.
+
+```{r}
+data_row_train <- na.omit(data_train)
+nrow(data_row_train)
+```
+
+Teraz nasz zbiór jest pusty, ponieważ jedna z kolumn była cała pełna NA. Usuńmy ją, a potem zrealizujmy usuwanie wierszy zawierających NA.
+
+```{r}
+data_row_train <- data_train %>% select(1:27, 29:30) %>% na.omit()
+nrow(data_row_train)
+data_row_test <- data_test %>% select(1:27, 29:30) %>% na.omit()
+```
+
+W tym momencie mamy 2109 wierszy, czyli zostało nam o 907 mniej wierszy, co oznacza, że straciliśmy dużą część danych. W zbiorze testowym też usunęliśmy pewną część wierszy, tracąc koljene możliwe informacje.
+
+### Usunięcie kolumn z brakami danych
+
+***
+
+Innym sposobem jest usunięcie kolumn, gdzie występują brakujące wartości. W naszym zbiorze jest ich 8, więc tracimy dużą możliwość przewidywania choroby tarczycy po występowaniu danych atrybutów.
+
+```{r}
+data_col_train <- data_train %>% select(3:17, 19, 21, 23, 25, 27, 29, 30)
+print("Liczba kolumn po usunięciu tych z brakami danych:")
+ncol(data_col_train)
+
+data_col_test <- data_test %>% select(3:17, 19, 21, 23, 25, 27, 29, 30)
+```
+
+Spójrzmy jak teraz wygląda zbiór danych (dane wyświetlone poniżej). Zauważmy, że straciliśmy wszystkie kolumny z wartościami ciągłymi, co odbiera bardzo dużo informacji, nawet dane o wieku i płci zostały także usunięte. Natomiast jeśli chodzi o wartości hormonów to będziemy mogli odwołać się do kolumn _measured, określające czy zosatł wykonany pomiar. Jednak trzeba przyznać, że kolumny, które zawierały braki danych to te z ważnymi informacjami na temat pacjentów.
+
+```{r}
+str(data_col_train)
+```
+
+### Uzupełnienie braków danych średnią 
+
+***
+
+Aby nie tracić wierszy czy kolumn, w których występują braki danych istnieją inne sposoby zajęcia się nimi. Braki danych można zastąpić średnią, co jest często wykonywane - weźmy tylko pod uwagę, że w kolumnie TBG nie ma z czego wyliczyć średniej, a w kolumnie sex, nie da się z kategorycznej średniej zrobić zmiennej. Zanim dokonamy imputacji braków danych to usuniemy kolumnę TBG, a 150 wierszy z kolumny sex usuniemy a w drugim przypadku zastąpimy wartością losową. Dodatkowo technikę imputacji wykonujemy oddzielnie na zbiorach treningowych i testowych, gdyż mamy już ten podział - powinnismy zastosować ten sam model do imputacji z treningowego w testowym, jednak używane pakiety nie pozwalają na zapisanie modelu. Dlatego wykonujemy imputację oddzielnie.
+
+Zbiór z usunięciem wierszy z kolumny sex:
+
+```{r, echo=TRUE}
+data_mean_1 <- data_train %>% select(1:27, 29:30) %>% filter(!is.na(sex))
+imp <- mice(data_mean_1[,-29], method = "mean", m = 1, maxit = 1)
+data_mean_1_train <- complete(imp)
+anyNA(data_mean_1_train)
+data_mean_1_train <- cbind(data_mean_1_train, "Class" = data_mean_1[, 29])
+
+data_mean_1 <- data_test %>% select(1:27, 29:30) %>% filter(!is.na(sex))
+imp <- mice(data_mean_1[, -29], method = "mean", m = 1, maxit = 1)
+data_mean_1_test <- complete(imp)
+anyNA(data_mean_1_test)
+data_mean_1_test <- cbind(data_mean_1_test, "Class" = data_mean_1[, 29])
+```
+
+Zbiór z zastąpieniem wierszy z kolumny sex wartością losową:
+
+```{r, echo=TRUE}
+data_mean_2 <- data_train %>% select(1:27, 29:30)
+imp <- mice(data_mean_2[, -29], method = "mean", m = 1, maxit = 1)
+data_mean_2_train <- complete(imp)
+data_mean_2_train$sex <- impute(data_mean_2_train$sex, sample(c("F", "M"), 1))
+anyNA(data_mean_2_train)
+data_mean_2_train <- cbind(data_mean_2_train, "Class" = data_mean_2[, 29])
+
+data_mean_2 <- data_test %>% select(1:27, 29:30)
+imp <- mice(data_mean_2[, -29], method = "mean", m = 1, maxit = 1)
+data_mean_2_test <- complete(imp)
+data_mean_2_test$sex <- impute(data_mean_2_test$sex, sample(c("F", "M"), 1))
+anyNA(data_mean_2_test)
+data_mean_2_test <- cbind(data_mean_2_test, "Class" = data_mean_2[, 29])
+```
+
+Widzimy, że nie mamy żadnych braków danych - musimy tylko pamiętać o tym, że usunęliśmy kolumnę TBG i zmieniliśmy wiersze w kolumnie sex. Dodatkowo nad pytaniem o braki danych mamy pokazane w jakich kolumnach zostały naniesione poprawki. Możemy też spojrzeć na rozkłady wprowadzonych danych w kolumnach na zbiorze testowym.
+
+```{r}
+densityplot(imp)
+```
+
+### Uzupełnienie braków danych medianą
+
+***
+
+Ostatnim ze sposobów wykorzystywanych przy tej analizie jest uzupełnienie braków danych medianą. Jak poprzednio usuwamy kolumnę TBG oraz 150 wierszy z kolumny sex. W tym przypadku nie wyrzucamy kolumny z targetem, bo uzupełniamy braki modelem tylko w kolumnach, a nie na całym zbiorze.
+
+```{r, echo=TRUE}
+data_med_train <- data_train %>% select(1:27, 29:30) %>% filter(!is.na(sex))
+
+data_med_train$age <- impute(data_med_train$age, median) %>% as.numeric()
+data_med_train$TSH <- impute(data_med_train$TSH, median) %>% as.numeric()
+data_med_train$TT4 <- impute(data_med_train$TT4, median) %>% as.numeric()
+data_med_train$T3 <- impute(data_med_train$T3, median) %>% as.numeric()
+data_med_train$T4U <- impute(data_med_train$T4U, median) %>% as.numeric()
+data_med_train$FTI <- impute(data_med_train$FTI, median) %>% as.numeric()
+anyNA(data_med_train)
+
+data_med_test <- data_test %>% select(1:27, 29:30) %>% filter(!is.na(sex))
+
+data_med_test$age <- impute(data_med_test$age, median) %>% as.numeric()
+data_med_test$TSH <- impute(data_med_test$TSH, median) %>% as.numeric()
+data_med_test$TT4 <- impute(data_med_test$TT4, median) %>% as.numeric()
+data_med_test$T3 <- impute(data_med_test$T3, median) %>% as.numeric()
+data_med_test$T4U <- impute(data_med_test$T4U, median) %>% as.numeric()
+data_med_test$FTI <- impute(data_med_test$FTI, median) %>% as.numeric()
+anyNA(data_med_test)
+```
+
+Jak poprzednio też nie mamy już braków danych, więc zbiór jest gotowy do dalszej analizy.
+
+## Algorytm uczenia maszynowego
+
+***
+
+W powyższym akapicie wykonalismy kilka technik obróbki brakujących wartości i mamy teraz 5 nowych zbiorów (z przygotowanymi podziałami na testowy i treningowy), na których wykonamy ten sam algorytm uczenia maszynowego i potem porównamy wyniki. Przypominając, imputacje stosowaliśmy na ówcześnie przygotowanych zbiorach, więc będziemy porównywać ten sam podział. Natomiast modele imputacji zastosowane na zbiorach train i test były inne, bo nie dało się zapisać modelu (mozna było ręcznie uzupełniać, jednak chcieliśmy tego uniknąć).
+
+### Model i jego miara
+
+***
+
+Zastosujemy algorytm uczenia maszynowego rpart - czyli drzewo klasyfikacyjne. Miarą oceny, wykorzystaną przy naszym modelu jest AUC oraz recall. Do miar stworzono prawie identyczne funkcje, które zwracają tylko inny pomiar modelu. Przypominając, recall oznacza jaki procent obserwacji pozytywnych został zaklasyfikowany do tej klasy, natomiast AUC jest to pole pod krzywą ROC. Im bliższe wartości 1 tym model jest lepszy.Poniżej znajduje się kod określający nasz model i jego wytrenowanie dla uzyskanych zbiorów.
+
+```{r, echo = TRUE}
+set.seed(1)
+
+ml_model_recall <- function(train, test){
+  
+    #tworzymy jedną ramkę danych, gdyż wykorzystywana przez nas metpda wykorzystuje jedynie wiersze
+    data <- rbind(train, test)
+    n <- nrow(data)
+    m <- nrow(train)
+    
+    #definiujemy rodzaj problemu
+    task = TaskClassif$new(id = "data", backend = data, target = "Class", positive = "sick")
+    
+    #typ algorytmu i parametry
+    learner = mlr_learners$get("classif.rpart")
+    learner$param_set$values = list(maxdepth = 20)
+    learner$predict_type = "prob"
+    
+    #trenowanie modelu
+    learner$train(task, row_ids = 1:m)
+    #predykcja na zbiorze testowym
+    prediction = learner$predict(task, row_ids = (m+1):n)
+
+    measure = msr("classif.recall")
+    prediction$score(measure)
+    
+}
+
+ml_model_auc <- function(train, test){
+  
+    #tworzymy jedną ramkę danych, gdyż wykorzystywana przez nas metpda wykorzystuje jedynie wiersze
+    data <- rbind(train, test)
+    n <- nrow(data)
+    m <- nrow(train)
+    
+    #definiujemy rodzaj problemu
+    task = TaskClassif$new(id = "data", backend = data, target = "Class", positive = "sick")
+    
+    #typ algorytmu i parametry
+    learner = mlr_learners$get("classif.rpart")
+    learner$param_set$values = list(maxdepth = 20)
+    learner$predict_type = "prob"
+    
+    #trenowanie modelu
+    learner$train(task, row_ids = 1:m)
+    #predykcja na zbiorze testowym
+    prediction = learner$predict(task, row_ids = (m+1):n)
+
+    measure = msr("classif.auc")
+    prediction$score(measure)
+    
+}
+
+------------------------------# usunięcie wierszy z brakami danych -------------------------------
+
+ml_model_auc(data_row_train, data_row_test)
+ml_model_recall(data_row_train, data_row_test)
+
+------------------------------# usunięcie kolumn z brakami danych --------------------------------
+
+ml_model_auc(data_col_train, data_col_test)
+ml_model_recall(data_col_train, data_col_test)
+
+------------------------------# uzupełnianie średnią ---------------------------------------------
+
+ml_model_auc(data_mean_1_train, data_mean_1_test)
+ml_model_recall(data_mean_1_train, data_mean_1_test)
+
+------------------------------# uzupełnianie średnią + płeć losowo -------------------------------
+
+ml_model_auc(data_mean_2_train, data_mean_2_test)
+ml_model_recall(data_mean_2_train, data_mean_2_test)
+
+------------------------------# uzupełnianie medianą ---------------------------------------------
+
+ml_model_auc(data_med_train, data_med_test)
+ml_model_recall(data_med_train, data_med_test)
+
+```
+
+### Analiza wyników z powyższego akapitu
+
+***
+
+Jak można zauważyć usunięcie kolumn (szczególnie tych o wartościach z ważnymi informacjami o pacjencie) spowodowało, że algorytm przydziela klasę, którą chcemy przewidywać losowo. Żadna wartość z klasy "sick" nie została dobrze określona, a na tym nam zależało, więc taki zbiór jest zły. Z drugiej strony najlepszą miarę AUC ma zbiór danych, gdzie uzupełnialiśmy średnią wartości ciągłe, a płeć losowo. Jendak to usunięcie wierszy z brakami danych, co zmniejszyło zbiór o około 1000 wierszy, miał drugi najlepszy wynik oraz przypozrądkował najwięcej wartości z klasy "sick" prawidłowo. Algorytm przewidyawł klasę lepiej niż przy wykorzystaniu uzupełniania medianą. Samo uzupełnienie medianą i średnią miało zbliżone wyniki. Pamiętając, że w każdym zbiorze usunęliśmy jedną kolumnę i przeważnie to samo z brakami danych w kolumnie z wiekiem, poza tym jednym zbiorem gdzie uzupełniliśmy go losowo. Możemy zauważyć, że w tym przypadku nieusuwanie tych wierszy poprawiło algorytm, natomiast usunięcie wszystkich wierszy z brakami danych dało wcale nie taki gorszy wynik miary AUC. 

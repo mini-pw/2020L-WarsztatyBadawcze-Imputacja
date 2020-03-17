@@ -1,0 +1,202 @@
+---
+title: "Praca domowa nr 1 z warsztatów badawczych"
+author: "Marceli Korbin"
+date: "15 marca 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rpivotTable)
+library(ggplot2)
+library(rpart)
+```
+
+## Zbiór danych
+
+Z podanego w treści pracy domowej [źródła](https://www.openml.org/search?q=tags.tag%3AOpenML100&type=data&table=1&size=100) pobrałem do analizy zbiór **_adult_**. Zawiera on dane osobowe 48842 osób, na podstawie których przewidywano u każdej osoby, czy zarabia ona ponad 50 tysięcy dolarów rocznie. Dane zostały opublikowane w 1996 (zatem ponad 20 lat temu).
+
+```{r setup2, cache = TRUE}
+adult <- read.csv("https://www.openml.org/data/get_csv/1595261/phpMawTba")
+adult[adult==" ?"] <- NA
+# znaki zapytania oznaczamy jako wartości NA
+```
+
+## Eksploracja
+
+Za pomocą pakietów rpivotTable i ggplot2 dokonam analizy eksporacyjnej niektórych danych.
+
+### Wiek względem klasy pracowniczej
+
+```{r classage}
+rpivotTable(adult, rows = "workclass", aggregatorName="Average", vals = "age",
+            rendererName = "Heatmap", subtotals=FALSE)
+```
+```{r boxplot}
+ggplot(adult, aes(x=workclass, y=age)) + geom_boxplot() + coord_flip()
+```
+
+Ludzie, którzy nigdy nie pracowali, byli zazwyczaj młodsi od całej reszty. Spośród pracujących z kolei, najmłodszą grupę stanowili zatrudnieni prywatnie.
+
+### Zróżnicowanie płciowe na etapach edukacji
+
+```{r gender}
+rpivotTable(adult, rows = c("education.num", "education"), cols = "sex",
+            aggregatorName="Count as Fraction of Rows",
+            rendererName = "Heatmap", subtotals=FALSE)
+```
+
+Na każdym etapie edukacji było więcej mężczyzn. Najmniej sfeminizowanymi działami edukacji (mniej niż 20%) były doktorat i szkoła zawodowa.
+
+### Zróżnicowanie rasowe grup zawodowych
+
+```{r raceocc}
+rpivotTable(adult, rows = "occupation", cols = "race",
+            aggregatorName="Count as Fraction of Columns",
+            rendererName = "Heatmap", subtotals=FALSE)
+```
+
+Warto zauważyć, że największy odsetek czarnoskórych miała posada "priv-house-serv", a azjatów lub ludzi znad Oceanu Spokojnego - "prof-speciality". Trochę to przypomina znane wizerunki i schematy z popkultury.
+
+### Która narodowość pracuje najwięcej godzin w tygodniu?
+
+```{r nathour}
+rpivotTable(adult, rows = "native.country", aggregatorName="Average", vals="hours.per.week",
+            rendererName = "Horizontal Bar Chart", subtotals=FALSE)
+```
+
+Dość niespodziewanie Grecy - ze względu na czas opracowania danych nie można dopatrzeć się związku tej statystyki z późniejszą sytuacją ekonomiczną ich kraju. Dalej możemy znaleźć m.in. Tajlandię i Koreę Południową, które należą do regionu o wysoko rozwiniętej kulturze pracy.
+
+## Uczenie maszynowe
+
+Teraz na trzech sposobach imputacji danych, przetrenujemy algorytm **drzew decyzyjnych**. Moja metoda działania dla każdego sposobu imputacji:  
+* tworzę zbiór treningowy i testowy;  
+* imputuję zbiór treningowy;  
+* przeprowadzam kroswalidację (7 podzbiorów);  
+* imputuję zbiór testowy;  
+* oceniam algorytm na zbiorze testowym.
+
+Pod każdym treningiem wypisuję dwa argumenty:  
+* _crossval\_accu_ - skuteczność wyczekiwaną na podstawie kroswalidacji,  
+* _accuracy_ - skuteczność dla zbioru testowego.
+
+### Usunięcie wierszy
+
+```{r rowIMP, cache=TRUE}
+adult[adult==" ?"] <- NA
+trainrows <- sample(1:nrow(adult), 2/3*nrow(adult))
+testrows <- setdiff(1:nrow(adult), trainrows)
+aTRAIN <- adult[trainrows, ]
+aTEST <- adult[testrows, ]
+aTRAIN <- na.omit(aTRAIN)
+
+crossval_accu <- function(aTR){ # funkcja do przewidzenia skuteczności na podstawie kroswalidacji
+  kol <- ncol(aTRAIN)
+  aTRsets <- 1:nrow(aTR)
+  aTRAINset1 <- sample(aTRsets, length(aTRsets)/7)
+  aTRsets <- setdiff(aTRsets, aTRAINset1)
+  aTRAINset2 <- sample(aTRsets, length(aTRsets)/6)
+  aTRsets <- setdiff(aTRsets, aTRAINset2)
+  aTRAINset3 <- sample(aTRsets, length(aTRsets)/5)
+  aTRsets <- setdiff(aTRsets, aTRAINset3)
+  aTRAINset4 <- sample(aTRsets, length(aTRsets)/4)
+  aTRsets <- setdiff(aTRsets, aTRAINset4)
+  aTRAINset5 <- sample(aTRsets, length(aTRsets)/3)
+  aTRsets <- setdiff(aTRsets, aTRAINset5)
+  aTRAINset6 <- sample(aTRsets, length(aTRsets)/2)
+  aTRAINset7 <- setdiff(aTRsets, aTRAINset6)
+  
+  accuracy1 <- 0
+  for (setnum in 1:7){
+    cvset <- get(paste("aTRAINset", as.character(setnum), sep=""))
+    tree_krosw <- rpart(class~., data=aTR[-cvset, ])
+    predict_class <- predict(tree_krosw, newdata=aTR[cvset, -kol], type="class")
+    predict_class <- factor(ifelse(predict_class==" <=50K", "below", "above"), levels=c("below", "above"))
+    observe_cat <- ifelse(aTR[cvset, kol]==" >50K" & predict_class=="above", "TP",
+                          ifelse(aTR[cvset, kol]==" >50K" & predict_class=="below", "FN",
+                                 ifelse(aTR[cvset, kol]==" <=50K" & predict_class=="below", "TN", "FP")))
+    observe_tab <- table(observe_cat)
+    accuracy1 <- accuracy1 + (observe_tab['TP']+observe_tab['TN'])/sum(observe_tab)
+  }
+  accuracy1/7
+}
+
+crossval_accu(aTRAIN)
+
+aTEST <- na.omit(aTEST)
+tree_krosw <- rpart(class~., data=aTRAIN)
+predict_class <- predict(tree_krosw, newdata=aTEST[, -15], type="class")
+predict_class <- factor(ifelse(predict_class==" <=50K", "below", "above"), levels=c("below", "above"))
+observe_cat <- ifelse(aTEST[, 15]==" >50K" & predict_class=="above", "TP",
+                      ifelse(aTEST[, 15]==" >50K" & predict_class=="below", "FN",
+                             ifelse(aTEST[, 15]==" <=50K" & predict_class=="below", "TN", "FP")))
+observe_tab <- table(observe_cat)
+accuracy <- (observe_tab['TP']+observe_tab['TN'])/sum(observe_tab)
+
+accuracy
+```
+
+### Usunięcie kolumn
+
+```{r colIMP, cache=TRUE}
+trainrows <- sample(1:nrow(adult), 2/3*nrow(adult))
+testrows <- setdiff(1:nrow(adult), trainrows)
+aTRAIN <- adult[trainrows, ]
+aTEST <- adult[testrows, ]
+aTRAIN <- aTRAIN[, colSums(is.na(aTRAIN))==0]
+
+crossval_accu(aTRAIN)
+
+aTEST <- aTEST[, colSums(is.na(aTEST))==0]
+kol <- ncol(aTEST)
+tree_krosw <- rpart(class~., data=aTRAIN)
+predict_class <- predict(tree_krosw, newdata=aTEST[, -kol], type="class")
+predict_class <- factor(ifelse(predict_class==" <=50K", "below", "above"), levels=c("below", "above"))
+observe_cat <- ifelse(aTEST[, kol]==" >50K" & predict_class=="above", "TP",
+                      ifelse(aTEST[, kol]==" >50K" & predict_class=="below", "FN",
+                             ifelse(aTEST[, kol]==" <=50K" & predict_class=="below", "TN", "FP")))
+observe_tab <- table(observe_cat)
+accuracy <- (observe_tab['TP']+observe_tab['TN'])/sum(observe_tab)
+
+accuracy
+```
+
+### Uzupełnienie modą
+
+Braki dotyczą jedynie danych nominalnych, a zatem, zamiast średniej czy mediany, należy zastosować dominantę (modę) do uzupełnienia NA bez usuwania innych danych.
+
+```{r modeIMP, cache=TRUE}
+trainrows <- sample(1:nrow(adult), 2/3*nrow(adult))
+testrows <- setdiff(1:nrow(adult), trainrows)
+aTRAIN <- adult[trainrows, ]
+aTEST <- adult[testrows, ]
+moda <- function(x){
+  u <- unique(x)
+  u[which.max(tabulate(match(x, u)))]
+}
+nas <- colSums(is.na(aTRAIN[, -15]))
+for (i in colnames(aTRAIN[, -15])){
+  if (nas[[i]]==0) aTRAIN[is.na(aTRAIN[[i]]), i] <- moda(aTRAIN[[i]])
+} # ważne: z takiej modyfikacji wyłączamy kolumnę odpowiedzi
+
+crossval_accu(aTRAIN)
+
+nas <- colSums(is.na(aTEST[, -15]))
+for (i in colnames(aTEST[, -15])){
+  if (nas[[i]]==0) aTEST[is.na(aTEST[[i]]), i] <- moda(aTEST[[i]])
+}
+tree_krosw <- rpart(class~., data=aTRAIN)
+predict_class <- predict(tree_krosw, newdata=aTEST[, -15], type="class")
+predict_class <- factor(ifelse(predict_class==" <=50K", "below", "above"), levels=c("below", "above"))
+observe_cat <- ifelse(aTEST[, 15]==" >50K" & predict_class=="above", "TP",
+                      ifelse(aTEST[, 15]==" >50K" & predict_class=="below", "FN",
+                             ifelse(aTEST[, 15]==" <=50K" & predict_class=="below", "TN", "FP")))
+observe_tab <- table(observe_cat)
+accuracy <- (observe_tab['TP']+observe_tab['TN'])/sum(observe_tab)
+
+accuracy
+```
+
+### Wniosek
+
+We wszystkich trzech algorytmach skuteczność osiąga wartości od 84 do 85%, przy czym najwyższą skuteczność (jedyną przekraczającą 85%) algorytm wykazał dla danych o **usuniętych kolumnach** z brakami danych.
