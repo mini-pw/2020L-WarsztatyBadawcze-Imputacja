@@ -1,0 +1,517 @@
+---
+title: "Praca domowa 1"
+author: "Piotr Fic"
+date: "13 marca 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(GGally)
+library(visdat)
+library(dplyr)
+library(OpenML)
+library(skimr)
+library(naniar)
+library(DataExplorer)
+library(patchwork) #source("https://install-github.me/thomasp85/patchwork")
+library(mlr3)
+library(mlr3viz)
+library(corrplot)
+library(ROCR)
+library(reshape2)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+
+sick_task <- getOMLDataSet(data.id = 38)
+df <- sick_task$data
+```
+
+# Cel pracy
+Zbadanie wpływu prostych technik imputacji braków danych na wyniki algorytmu uczenia maszynowego użytego na danym zbiorze danych.
+
+# Zbiór danych
+"sick": https://www.openml.org/d/38 \
+"Thyroid disease records supplied by the Garavan Institute and J. Ross Quinlan, New South Wales Institute, Syndney, Australia."\
+Typ zadania: klasyfikacja osób chorych na podstawie danych medycznych pacjentów.
+
+# Analiza eksploracyjna
+## Podstawowe informacje
+Zbiór danych składa się z dużej ilości zmiennych. Większość to zmienne kategoryczne, zmienne ciągłe są wskaźnikami\
+z badań medycznych tarczycy.
+
+```{r echo=FALSE}
+skim(df)
+```
+
+## Rozkłady zmiennych ciągłych
+Rozkłady zmiennych ciągłych poza zmienną TSH są zbliżone do rozkładu normalnego.\
+Pary zmiennych T3-TT4 oraz FTI-TT4 wykazują dość znaczącą korelację co może wynikać z faktu, że jako wskaźniki medyczne mogą być ze sobą powiązane.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+plot_histogram(df, ncol = 3)
+
+ggpairs(df[, c("age", "TSH", "T3", "TT4", "T4U", "FTI")], upper = list(continuous = "density", combo = "box_no_facet", discrete =
+  "facetbar", na = "na"))
+
+korelacja <- cor(df[, c("age", "TSH", "T3", "TT4", "T4U", "FTI")], use = 'complete.obs')
+corrplot(korelacja, method = 'color')
+```
+
+## Rozkłady zmiennych kategorycznych
+Większość ze zmiennych kategorycznych to zmienne binarne. Warto zauważyć:
+
+- przewaga kobiet nad mężczyznami
+- niezrównoważone liczności w niemal wszystkich zmiennych
+- klasa, którą chcemy przewidywać jest mocno niezbilansowana,\
+  zdecydowanie przeważają osoby z diagnozą negatywną
+
+```{r echo=FALSE}
+plot_bar(df, ncol = 4)
+```
+
+
+## Zmienne z brakami danych
+### Typy zmiennych z brakami danych
+Tylko jedna kolumna z brakami dotyczy zmiennej kategorycznej (płeć), pozostałe to zmienne ciągłe. Dodatkowo:
+
+ - zmienna TBG jest w całości pusta i mogła zostać usunięta ze zbioru
+ - w zmiennej 'age' występuje dokładnie jeden brak, zdecydowałem o usunięciu tej obserwacji\
+i uznaniu zmiennej 'age' za kompletną
+
+```{r echo=FALSE}
+missing_var_cols <- c("sex", "age", "TSH", "T3", "TT4", "T4U", "FTI", "TBG")
+vis_dat(df[,missing_var_cols])
+```
+
+### Procentowy brak danych
+Braki danych stanowią istotny odsetek w zmiennych ciągłych gdzie w czterech z nich przekraczają próg około 10%.
+
+```{r echo=FALSE}
+missing_var_cols <- c("sex", "TSH", "T3", "TT4", "T4U", "FTI")
+gg_miss_var(df[,missing_var_cols], 
+            show_pct = TRUE) + 
+  ylim(0, 30)
+```
+
+### Wzorce w brakach danych
+Można zaobserwować, że istnieje spora grupa przypadków gdzie braki występują jednocześnie we wszystkich pomiarach wskaźników.
+
+```{r echo=FALSE}
+vis_miss(df[,missing_var_cols], cluster = TRUE)
+```
+
+Najwięcej braków danych miało miejsce w zmiennej T3. Względem występowania braku w tej zmiennej rozdzieliłem histogramy pozostałych zmiennych ciągłych. Nie zaobserwowałem żadnych nietypowych zależności.
+
+```{r include=FALSE}
+p1 <- df %>%
+  bind_shadow() %>%
+  ggplot(aes(x = TSH,
+             fill = T3_NA )) +
+  geom_histogram()
+p2 <- df %>%
+  bind_shadow() %>%
+  ggplot(aes(x = FTI,
+             fill = T3_NA )) +
+  geom_histogram()
+p3 <- df %>%
+  bind_shadow() %>%
+  ggplot(aes(x = T4U,
+             fill = T3_NA )) +
+  geom_histogram()
+p4 <- df %>%
+  bind_shadow() %>%
+  ggplot(aes(x = TT4,
+             fill = T3_NA )) +
+  geom_histogram()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+p1+p2+p3+p4
+```
+
+# Imputacja danych i badanie modeli
+## Założenia
+1. Usunięta zmienna 'TBG'
+2. Usunięta obserwacja z brakiem w zmiennej 'age'
+3. Zastosowanie następujących metod imputacji danych:
+ - usunięcie obserwacji z minimum jednym brakiem
+ - usunięcie kolumn zmiennych z brakami danych
+ - imputacja prosta:\
+   zmienna kategoryczna 'sex': wprowadzenie dodatkowej kategorii dla braku danych\
+   zmienne ciągłe: zastąpienie medianą i zastąpienie średnią
+ 
+Powyższe techniki połączyłem w 6 wariantów, dodatkowo badając imputację zmiennych ciągłych z usuniętą zmienną kategoryczną.
+
+## Algorytm
+Do zbadania wpływu imputacji danych wybrałem algorytm drzewa klasyfikacyjnego.\
+Wyniki algorytmu mierzyłem według następującego schematu:
+
+1. Podział na zbiór testowy i treningowy
+2. Imputacja na zbiorze treningowym
+3. Kroswalidacja na zbiorze treningowym z dostrajaniem parametru minsplit
+4. Imputacja na zbiorze testowym
+5. Zebranie miar z predykcji na zbiorze testowym
+
+### Przygotowanie do przeprowadzenia testów
+
+```{r preparation}
+df <- sick_task$data
+
+# Usunięcie zmiennej 'TBG'
+df <- subset(df, select = -TBG)
+
+# Usunięcie obserwacji z brakiem w 'age'
+df <- df[!is.na(df$age),]
+
+# Algorytm
+learner = mlr_learners$get("classif.rpart")
+learner$predict_type <- 'prob'
+
+#Kroswalidacja
+cv = rsmp("cv", folds = 10)
+
+walidacja <- function(task){
+  
+  result <- c()
+  
+  for (i in c(10:30)) {
+    # Strojenie parametru minsplit - domyślnie==20
+    cur_learner <- learner
+    cur_learner$param_set$values = list(minsplit = i)
+    
+    # Przeprowadzenie walidacji
+    rr = resample(task, learner, cv)
+    
+    # Zapisanie średniej ACC
+    result[i] <- mean(rr$score(msr("classif.acc"))$classif.acc)
+  }
+  
+  # Funkcja zwraca algorytm z najlepszym parametrem
+  best_learner <- learner
+  best_learner$param_set$values = list(minsplit = which.max(result))
+    
+  return(best_learner)
+}
+
+# Zapis rezultatów
+metoda = c("del_row", "del_var", "median", "mean",
+                                 "median_no_sex", "mean_no_sex")
+results <- data.frame(accuracy = rep(NA, 6), precision = rep(NA, 6),
+                      AUC = rep(NA, 6))
+row.names(results) <- metoda
+
+# Miary oceny
+accuracy <- msr("classif.acc")
+precision <- msr("classif.precision")
+auc <- msr("classif.auc")
+
+score <- function(alg, train_s, test_s, task){
+  # Trenowanie
+  alg$train(task, row_ids = train_s)
+
+  # Predykcja
+  prediction <- alg$predict(task, row_ids = test_s)
+  
+  # Miary
+  acc <- prediction$score(accuracy)
+  pr <- prediction$score(precision)
+  auc <- prediction$score(auc)
+  
+  # Krzywe ROCR
+  roc <- autoplot(prediction, type='roc')
+  return(c(acc, pr, auc, roc))
+}
+
+```
+
+### 1. Usuwanie obserwacji
+
+```{r}
+# Usunięcie obserwacji z minimum jednym brakiem danych
+df1 <- df[complete.cases(df),]
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df1, target = "Class")
+
+train_set = sample(task_sick$nrow, 0.8 * task_sick$nrow)
+test_set = setdiff(seq_len(task_sick$nrow), train_set)
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["del_row",] <- wynik[1:3]
+r1 <- as.data.frame(wynik[4])
+
+```
+
+### 2. Usuwanie zmiennych z brakami
+
+```{r}
+# Usunięcie zmiennych gdzie wystąpiły braki
+df2 <- subset(df, select = -c(sex, TSH, T3, TT4, T4U, FTI))
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df2, target = "Class")
+
+# Ten podział pozostanie niezmionony dla kolejnych metod
+train_set = sample(task_sick$nrow, 0.8 * task_sick$nrow)
+test_set = setdiff(seq_len(task_sick$nrow), train_set)
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["del_var",] <- wynik[1:3]
+r2 <- as.data.frame(wynik[4])
+
+```
+
+### 3. Uzupełnienie średnią oraz dodatkowa kategoria dla zmiennej 'sex'
+
+```{r}
+df3 <- df
+
+# Dodanie kategorii 'u' - nieznana płeć (w miejsce brak danych)
+df3$sex <- as.character(df3$sex)
+df3$sex[is.na(df3$sex)] <- "u"
+df3$sex <- as.factor(df3$sex)
+
+train_set_df <- df3[train_set,]
+test_set_df <- df3[test_set,]
+
+# Uzupełnianie średnią zbioru treningowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df3[ ,i])
+  rows[test_set] <- FALSE
+  df3[rows, i] <- mean(train_set_df[,i], na.rm = TRUE)
+}
+
+# Uzupełnianie średnią zbioru testowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df3[ ,i])
+  rows[train_set] <- FALSE
+  df3[rows, i] <- mean(test_set_df[,i], na.rm = TRUE)
+}
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df3, target = "Class")
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["mean",] <- wynik[1:3]
+r3 <- as.data.frame(wynik[4])
+
+```
+
+### 4. Uzupełnienie medianą oraz dodatkowa kategoria dla zmiennej 'sex'
+
+```{r}
+df4 <- df
+
+# Dodanie kategorii 'u' - nieznana płeć (brak danych)
+df4$sex <- as.character(df4$sex)
+df4$sex[is.na(df4$sex)] <- "u"
+df4$sex <- as.factor(df4$sex)
+
+train_set_df <- df4[train_set,]
+test_set_df <- df4[test_set,]
+
+# Uzupełnianie medianą zbioru treningowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df4[ ,i])
+  rows[test_set] <- FALSE
+  df3[rows, i] <- median(train_set_df[,i], na.rm = TRUE)
+}
+
+# Uzupełnianie medianą zbioru testowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df3[ ,i])
+  rows[train_set] <- FALSE
+  df3[rows, i] <- mean(test_set_df[,i], na.rm = TRUE)
+}
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df4, target = "Class")
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["median",] <- wynik[1:3]
+r4 <- as.data.frame(wynik[4])
+
+```
+
+### 5. Usunięcie zmiennej 'sex' oraz imputacja średniej
+```{r}
+df5 <- df
+
+# Usunięcie zmiennej 'sex'
+df5 <- subset(df5, select = -sex)
+
+train_set_df <- df5[train_set,]
+test_set_df <- df5[test_set,]
+
+# Uzupełnianie średnią zbioru treningowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df5[ ,i])
+  rows[test_set] <- FALSE
+  df5[rows, i] <- mean(train_set_df[,i], na.rm = TRUE)
+}
+
+# Uzupełnianie średnią zbioru testowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df5[ ,i])
+  rows[train_set] <- FALSE
+  df5[rows, i] <- mean(test_set_df[,i], na.rm = TRUE)
+}
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df5, target = "Class")
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["mean_no_sex",] <- wynik[1:3]
+r5 <- as.data.frame(wynik[4])
+
+```
+
+### 6. Usunięcie zmiennej 'sex' oraz imputacja mediany
+```{r}
+df6 <- df
+
+# Usunięcie zmiennej 'sex'
+df6 <- subset(df6, select = -sex)
+
+train_set_df <- df6[train_set,]
+test_set_df <- df6[test_set,]
+
+# Uzupełnianie medianą zbioru treningowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df6[ ,i])
+  rows[test_set] <- FALSE
+  df6[rows, i] <- median(train_set_df[,i], na.rm = TRUE)
+}
+
+# Uzupełnianie medianą zbioru testowego
+for(i in c("TSH", "T3", "TT4", "T4U", "FTI")){
+  rows <- is.na(df6[ ,i])
+  rows[train_set] <- FALSE
+  df6[rows, i] <- median(test_set_df[,i], na.rm = TRUE)
+}
+
+# Przygotowanie zadania
+task_sick = TaskClassif$new(id = "sick", backend = df6, target = "Class")
+
+# Walidacja
+alg <- walidacja(task_sick)
+
+# Trenownie, predykcja, ocena
+wynik <- score(alg, train_set, test_set, task_sick)
+
+results["median_no_sex",] <- wynik[1:3]
+r6 <- as.data.frame(wynik[4])
+
+```
+
+# Podsumowanie wyników
+### Miary predykcji klas
+
+Zdecydowanie najgorsze rezultaty przyniosło usunięcie zmiennych z brakami danych. Pozostałe techniki przyniosły bardzo zbliżone rezultaty. Najlepsze miary algorytm osiągnął po:
+
+- usunięciu obserwacji z brakami
+- imputacji mediany w zmiennych ciągłych oraz dodatkowej kategorii braku danych w zmiennej kategorycznej
+
+```{r echo=FALSE}
+nazwy <- c("usunięcie\n obserwacji", "usunięcie\n zmiennych", "średnia",
+           "średnia bez\n zmiennej sex", "mediana", "mediana bez\n zmiennej sex")
+
+p1 <- ggplot(results[1], aes(x = row.names(results), y = accuracy))+
+  geom_point()+
+  ggtitle("Dokładność w zależności od imputacji")+
+  xlab("Metoda imputacji")+
+  scale_x_discrete(labels=nazwy)
+#p1
+```
+
+```{r echo=FALSE}
+p2 <- ggplot(results[2], aes(x = row.names(results), y = precision))+
+  geom_point()+
+  ggtitle("Precyzja w zależności od imputacji")+
+  xlab("Metoda imputacji")+
+  scale_x_discrete(labels=nazwy)
+#p2
+```
+
+```{r echo=FALSE, fig.width=12}
+p1+p2
+```
+
+
+### Miary prawdopodobieństwa
+
+Poza usuwaniem zmiennych, wszystkie metody przyniosły porównywalne i bardzo dobre wyniki. Usuwanie zmiennych przyniosło bardzo negatywny efekt, algorytm osiągnął wynik klasyfikatora losowego.
+
+```{r include=FALSE}
+p3 <- ggplot(results[3], aes(x = row.names(results), y = AUC))+
+  geom_point()+
+  ggtitle("AUC w zależności od imputacji")+
+  xlab("Metoda imputacji")+
+  scale_x_discrete(labels=nazwy)
+
+```
+
+```{r include=FALSE}
+roc_cur <- data.frame(x = r1$data.x[1:1000], del_row = r1$data.y[1:1000], del_var = r2$data.y[1:1000],
+                      mean = r3$data.y[1:1000], median = r4$data.y[1:1000],
+                      mean_no_sex = r5$data.y[1:1000], median_no_sex = r6$data.y[1:1000])
+
+to_plot <- as.data.frame(t(roc_cur))
+colnames(to_plot) <- to_plot[1,]
+to_plot <- to_plot[-1,]
+to_plot <- cbind(metoda = row.names(to_plot), to_plot)
+
+to_plot <- melt(to_plot, id.vars = 'metoda', value.name = 'val', variable.name = 'var')
+to_plot$var <- as.numeric(levels(to_plot$var)[to_plot$var])
+
+p4 <- ggplot(to_plot, aes(x=as.numeric(var), group = metoda, y=val, colour = metoda))+
+  geom_line()+
+  ggtitle("Krzywe ROCR")+
+  ylab("TP rate")+
+  xlab("FP rate")
+
+```
+
+```{r echo=FALSE, fig.width=12}
+p3+p4
+```
+
+Dokładne wartości osiągniętych miar.
+
+```{r echo=FALSE}
+tab <- results
+row.names(tab) <- c("usunięcie obserwacji", "usunięcie zmiennych",  "mediana", "średnia", "mediana bez zmiennej sex", "średnia bez zmiennej sex")
+knitr::kable(tab)
+```
+
+## Podsumowanie
+Dla badanego zbioru wszystkie techniki imputacji poza usunięciem zmiennych miały podobny wpływ na osiągnięcia modelu uczenia maszynowego. Nieznacznie lepsze od pozostałych okazało się usuwanie obserwacji z brakami oraz imputacja mediany (zmienne ciągłe) i dodatkowej kategorii (zmienne kategoryczne). Na wyniki z pewnością istotny wpływ miało niezbalansowanie kategorii podlegającej klasyfikacji.\
+ \
+ \
