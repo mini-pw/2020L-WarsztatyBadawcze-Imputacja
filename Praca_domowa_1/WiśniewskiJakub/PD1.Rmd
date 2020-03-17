@@ -1,0 +1,246 @@
+---
+title: "Praca domowa 1"
+author: "Jakub Wiśniewski"
+date: "3/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning  = FALSE)
+knitr::opts_chunk$set(message  = FALSE)
+
+
+```
+
+### Dane 
+Dane pochodzą z OpemML100, jest to zbiór https://www.openml.org/d/29 . Jest ciekawy do eksploracji, ponieważ ma zmienne kategoryczne i ciągłe, o różnych rozkładach, oraz kilka missing values. 
+```{r, include=FALSE}
+library(dplyr)
+library(DataExplorer)
+library(ggplot2)
+library(DT)
+library(visdat)
+library(naniar)
+df <- read.csv("dataset_29_credit-a.csv", stringsAsFactors = FALSE)
+
+```
+## 1. Eksploracja Danych 
+
+### 1.1 Typy, struktura danych
+
+Dane mają konkretną strukturę
+```{r}
+str(df)
+```
+
+Trzeba uważać na "zamaskowane" missing values
+```{r}
+unique(df$A4)
+```
+
+Tak wygląda nasza ramka danych.
+```{r}
+DT::datatable(df)
+```
+
+Zmieńmy ? na NA, oraz nadajmy factory komlumnom bez wartości numerycznych.
+```{r}
+
+for (col in colnames(df)){
+  df[df[col] == "?",col] <- NA
+}
+
+
+change_to_factor <- function(df){
+for (i in seq_along(colnames(df))){
+    if (!is.numeric(df[,i])){
+      df[,i] <- as.factor(df[,i])
+      }
+}
+  return(df)
+}
+df <- change_to_factor(df)
+
+
+df$A2 <- as.numeric(df$A2)
+df$A14 <- as.numeric(df$A2)
+
+str(df)
+```
+
+
+Tak wyglądają typy danych w naszym zbiorze.
+```{r}
+vis_dat(df)
+
+``` 
+
+
+Jak widzimy, nie ma zbyt wielu missing values. 
+```{r}
+DataExplorer::plot_missing(df)
+```
+   
+Braki nie wydają się również być ze sobą połączone, chociaż wartości tych jest za mało, żeby ocenić.
+```{r}
+gg_miss_upset(df)
+```
+
+### 1.2 Rozkłady kolumn
+Kolumny, które mają rozkłady dyskretne, prezentują sie tak:
+```{r}
+DataExplorer::plot_bar(df)
+```
+
+Zmienne ciągłe nie mają rozkładów normalnych. Jedyną zmienną, której rozkład chociaż troszkę przypomina normalny, to zmienna A2   
+```{r}
+DataExplorer::plot_histogram(df)
+```
+   
+## 3. Zaawansowana Analiza  
+   
+Sprawdźmy, jak bardzo różni się rozkład zmiennej A2 od rozkładu normalnego . Widzimy, że na "ogonach" odbiega on znacznie od rozkładu normalnego.
+```{r}
+DataExplorer::plot_qq(df$A2)
+```
+
+Niektóre dane są ze sobą skorelowane. Przykładowo zmienne ciągłe zdają się być ze sobą skorelowane na poziomie 0.3-0.5.
+```{r}
+DataExplorer::plot_correlation(na.omit(df))
+```
+
+Dla klasy `+` zmienne ciągłe przyjmują zazwyczaj większe wartości oraz jest dla niej więcej wartości odstających.
+```{r}
+DataExplorer::plot_boxplot(df, by = "class")
+```
+
+
+Niestety nie jesteśmy w stanie się dowiedzieć co oznaczają dane zmienne i tym samym nadać naszym eksploracjom sens. Spróbujmy jednak stworzyć kilka wykresów, które pozwolą troszkę lepiej zrozumieć co dzieje się w naszych danych. 
+```{r}
+ggplot(df, aes(A2, A3, color = class)) + geom_point()
+```
+
+Zwróćmy uwagę na poniższy wykres. Wiemy, że klasa `+` i klasa `-` to albo przyznanie albo nie przyznanie kredytu. Możemy dzięki temu postawić tezę, że A15 to ilość pieniędzy w banku. Miałoby to sens, gdyż outliery mają głównie kolor niebieski.
+```{r}
+ggplot(df, aes(A2, A15, color = class)) + geom_point()
+```
+
+Biorąc pod uwagę obserwacje zmiennej A15 większe niż 6 tysięcy, możemy potwierdzić nasze przypuszczenia, że wysokie wartości A15 skutkują przyznaniem kredytu. 
+```{r}
+ggplot(df[df$A15 > 6000,], aes(A15, fill = class)) + geom_density()
+```
+
+W przypadku zmiennej A8 obserwacje klasy `+` mają dłuższy i grubszy ogon, a więcej klasy `-` jest przy zerze.
+```{r}
+ggplot(df, aes(A8, fill = class)) + geom_density(alpha = 0.5)
+```
+
+Podobnie jest w przypadku A11
+```{r}
+ggplot(df, aes(A11, fill = class)) + geom_density(alpha = 0.5)
+```
+
+
+
+## 4. Uczenie maszynowe z wykorzystaniem różnych prostych technik obróbki brakujących danych
+
+Algorytm machine learningowy, z którego będę korzystał to Random Forest (uwielbiam ten algorytm, gdyż robiłem go na projekt w Javie i totalnie się nie udało :( ).
+```{r}
+library(randomForest) # korzystamy z Lasu Losowego 
+  
+n <- length(df$A1) # ilość obserwacji
+
+# permutuję zbiór
+idx_permutation <- sample(1:n, n)
+df <- df[idx_permutation, ]
+
+# podział 80-20
+train <- df[1:round(0.8*n), ]
+test <- df[(round(0.8*n)+1):n,]
+
+
+```
+
+Następnie prostymi technikami obrabiam dane
+
+1. Omijanie brakujących danych
+```{r}
+train1 <- na.omit(train)
+test1  <- na.omit(test)
+
+```
+
+2. Omijam kolumny z brakującymi danymi
+```{r}
+# tutaj w tych samych kolumnach są braki danych, więc możemy tak zrobić
+train2 <- train[ , colSums(is.na(train)) == 0]
+test2  <- test[ , colSums(is.na(test)) == 0]
+
+```
+
+ 
+3. Wartości ciągłe medianą, a dyskretne modą  
+```{r}
+numeric_input_mean <- function(df){
+  for (i in seq_along(colnames(df))){
+    if (is.numeric(df[,i])){
+      col_median <- median(df[,i], na.rm = TRUE)
+      df[is.na(df[,i]),i] <- col_median
+  }
+}
+  return(df)
+}
+
+categorical_input_mode <- function(df){
+  for (i in seq_along(colnames(df))){
+    if (is.factor(df[,i])){
+      uniqv <- unique(df[,i])
+      col_mode <- uniqv[which.max(tabulate(match(df[,i], uniqv)))]
+      df[is.na(df[,i]),i] <- col_mode
+  }
+}
+  return(df)
+}
+
+train3 <- numeric_input_mean(train)
+test3 <- numeric_input_mean(test)
+
+train3 <- categorical_input_mode(train3) 
+test3 <- categorical_input_mode(test3)
+
+
+
+```
+
+
+
+```{r}
+
+
+acc <- c(0,0,0)
+
+for (i in 1:100){
+
+model_rf_1 <- randomForest(class ~., data = train1, probability = TRUE)
+
+model_rf_2 <- randomForest(class ~., data = train2, probability = TRUE)
+
+model_rf_3 <- randomForest(class ~., data = train3, probability = TRUE)
+
+pred1 <- predict(model_rf_1, newdata = test1)
+pred2 <- predict(model_rf_2, newdata = test2)
+pred3 <- predict(model_rf_3, newdata = test3)
+
+
+acc[1] <- acc[1] + sum(test1$class == pred1)/length(pred1)
+acc[2] <- acc[2] +  sum(test2$class == pred2)/length(pred2)
+acc[3] <- acc[3] + sum(test3$class == pred3)/length(pred3)
+
+}
+acc/100
+
+```
+
+## 5. Podsumowanie
+Jak dało się wywnioskować najlepszym narzędziem okazało okazało się wstawienie mediany i mody, aczkolwiek brakujących danych było tak mało, że ta różnica jest znikoma. Lasy losowe również nie dają jednoznacznych wyników, bo są "losowe". Dlatego postanowiłem wziąć średnią z 100 modeli, co nadaje większej pewności wynikom. Również bez zaskoczeń okazało się to, że model uczony na zbiorze z mniejszą ilością kolumn wypadł najgorzej.
