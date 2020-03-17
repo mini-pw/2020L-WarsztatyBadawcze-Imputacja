@@ -1,0 +1,392 @@
+---
+title: "Praca domowa 1"
+author: "Agata Makarewicz"
+date: "16 03 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(mice)
+library(Hmisc)
+library(OpenML)
+library(mlr3)
+library(data.table)
+library(class)
+library(gridExtra)
+library(DataExplorer)
+
+set.seed(1)
+
+```
+
+## Wprowadzenie
+
+Poniższa analiza eksploracyjna dotyczy [zbioru danych](https://www.openml.org/d/40945) zawierającego informacje na temat pasażerów Titanica.
+
+
+```{r data}
+# pobranie danych z OpenML
+titanic_task_openml <- getOMLDataSet(data.id = 40945L)
+titanic <- titanic_task_openml$data
+# titanic <- read.csv("titanic_ml.csv", sep=",")
+
+knitr::kable(head(titanic), caption = "Tab.1. Fragment ramki danych")
+```
+
+## Eksploracja danych
+
+#### Zmienne
+
+- 1 - **pclass** - klasa
+- 2 - **survival** - czy pasażer przeżył czy nie (0 - nie przeżył, 1 - przeżył)
+- 3 - **name** - imię i nazwisko 
+- 4 - **sex** - płeć
+- 5 - **age** - wiek 
+- 6 - **sibsp** - liczba rodzeństwa/małżonków na pokładzie
+- 7 - **parch** - liczba dzieci/rodziców na pokładzie
+- 8 - **ticket** - numer biletu 
+- 9 - **fare** - opłata
+- 10 - **cabin** - numer kabiny
+- 11 - **embarked** - miejsce wejścia na pokład (C = Cherbourg; Q = Queenstown; S = Southampton)
+- 12 - **boat** - numer łodzi ratunkowej
+- 13 - **body** - numer identyfikacyjny ciała
+- 14- **home.dest** - miejsce pochodzenia/cel podróży
+
+Przejdźmy do sprawdzenia struktury naszych danych oraz ich krótkiego podsumowania. 
+
+```{r str_stat}
+# badanie struktury
+str(titanic)
+
+# wizualizacja całego zbioru
+knitr::kable(summary(titanic), caption = "Tab.2. Statystyki danych")
+```
+
+```{r analyse}
+ggplot(titanic, aes(x=titanic$age)) +
+   geom_histogram(aes(y=..density..),colour="black",fill="lightblue", bins=20) +
+   geom_density(aes(y=..density..), colour = "black", size=1)+
+   labs(x = "age", y = "Density", title = "Rozkład wieku")
+plot_boxplot(titanic, by="survived", title="Boxploty względem statusu przeżycia", ncol = 3 )
+```
+
+Widzimy, że statystyki nie dają nam zbyt dużo informacji, gdyż w kilku kolumnach mamy sporo brakujących wartości (NA). Skupmy się zatem na tych brakach danych i na sposobach radzenia sobie z nimi.
+
+```{r miss, fig.height=5, fig.width=10}
+vis_dat(titanic)
+vis_miss(titanic)
+```
+
+O ile powyższy wykres prezentuje nam ile procentowo obserwacji brakuje w każdej kolumnie, o tyle nie widać tej wartości dla ostatniej z nich, **home.dest**. Zobaczmy zatem to samo podsumowanie, lecz w postaci tabeli.
+
+```{r miss_table, fig.height=4, fig.width=8}
+miss_var_summary(titanic)
+```
+
+Mamy aż 3 kolumny, w których braki danych stanowią ponad 60% - te zmienne nie będą zatem prawdopodobnie zbyt znaczące dla naszej dalszej pracy.
+
+Zobaczmy jednak jak te braki danych prezentują się "z drugiej strony" - tzn. patrząc z "perspektywy" wierszy (obserwacji).
+```{r rows}
+gg_miss_case(titanic) # nie ma pełnych wierszy!!!!!
+```
+
+Okazuje się, że nie ma takiej obserwacji, która nie miałaby żadnego braku danych. Widać to także na poniższym wykresie, który pokazuje nam wszystkie "kombinacje" naszych braków danych. Z tego powodu nie będziemy raczej rozważać usuwania rzędów jako techniki imputacji danych.
+
+```{r nice_chart}
+gg_miss_upset(titanic)
+
+```
+
+## Imputacja
+
+Jak widać na powyższych wykresach w zmiennych "body", "cabin" oraz "boat" brakuje odpowiednio ponad 90%, 75% oraz 60% wartości - nie pozostaje nam zatem nic innego jak usunąć te kolumny, gdyż uzupełnienie tak dużych braków nie ma zbyt dużego sensu.
+
+```{r delete}
+titanic <- titanic %>%
+  select(-(body),-(cabin), -(boat))
+```
+
+Sprawdźmy jak będą wyglądały nasze dane po tej operacji - poniżej widać, że prezentują się one już trochę lepiej.
+
+```{r miss_again}
+vis_miss(titanic)
+
+miss_var_summary(titanic)
+
+gg_miss_case(titanic)
+
+```
+
+Usunięcie tych trzech kolumn spowodowało, że mamy już całkiem sporo obserwacji z kompletem danych.
+
+Pozostałe zmienne z brakami danych - **age**, **embarked** oraz **fare** uzupełnimy za pomocą średniej, mediany lub mody. Co do zmiennej **home.dest**, prawdopodobnie również będziemy musieli ją usunąć.
+
+Dalszą imputację wykonamy jednak dopiero po podziale zbioru na treningowy i testowy.
+
+## Trenowanie modelu
+
+Zastosujemy algorytm wyszukiwania k najbliższych sąsiadów (kNN).
+Przewiduje on klasę nowej obserwacji na podstawie k najbliższych obserwacji z próby uczącej. Stosowana jest reguła większościowa.
+
+### Zdefiniowanie rodzaju problemu (task)
+
+```{r task, echo=TRUE}
+
+# zamieniamy zmienne typu factor
+titanic$sex <- as.numeric(as.factor(titanic$sex))
+titanic$embarked <- as.numeric(as.factor(titanic$embarked))
+
+# nie będziemy korzystali z "name" oraz "ticket" - są to zmienne typu "char", unikalne dla każdego pasażera 
+# na potrzeby modelu musimy równiez usunąć "home.dest"
+titanic <- titanic%>%
+  select(-(name), -(ticket),-(home.dest))
+
+# traget - kolumna, ktora objasniamy
+# TaskClassif do problemu klasyfikacji
+task_titanic = TaskClassif$new(id = "titanic", backend = titanic, target = "survived")
+
+# podsumowanie zbioru danych
+print(task_titanic)
+```
+
+### Podział na zbiór testowy i treningowy
+
+Do zbioru treningowego bierzemy losowe 80% obserwacji z naszego zbioru danych. Zbiór testowy będą stanowiły pozostałe obserwacje (20%).
+
+```{r test_train, echo=TRUE}
+# definiujemy, które wiersze należą do zbioru treningowego, a które do testowego
+train_set = sample(task_titanic$nrow, 0.8 * task_titanic$nrow) 
+test_set = setdiff(seq_len(task_titanic$nrow), train_set)
+
+data_train <- titanic[train_set,]
+data_test <- titanic[test_set,]
+```
+
+```{r plot, fig.height=5, fig.width=10}
+plot1 <- ggplot(data_train, aes(x=pclass, y = age, col = survived))+
+  geom_point(alpha = 0.8)
+plot2 <- ggplot(data_test, aes(x=pclass, y = age, col = survived))+
+  geom_point(alpha = 0.8)
+grid.arrange(plot1,plot2,ncol=2)
+```
+
+### Imputacja - metoda 1 
+
+Braki danych w kolumnach **age** oraz **fare** (jeśli się pojawią) uzupełnimy średnią, w kolumnie **embarked** - modą.
+
+```{r dominant, echo=FALSE}
+
+dominant <- function(x){
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+```
+
+```{r imputation1, echo=TRUE, results="hide"}
+
+data_train1 <- data_train
+
+# miss_var_summary(data_train1)
+
+imp <- mice(data_train1%>%select(-(embarked)), method = "mean", m = 1, maxit = 1)
+
+data_train1$embarked <- with(data_train1[,-2], impute(embarked, dominant))
+
+data_train1[,-10] <- complete(imp)
+
+# miss_var_summary(data_train1)
+
+# ---------------------------------------------------------------------------------------
+
+data_test1 <- data_test
+
+# miss_var_summary(data_test1)
+
+imp <- mice(data_test1%>%select(-(embarked)), method = "mean", m = 1, maxit = 1)
+
+data_test1$embarked <- with(data_test1[,-2], impute(embarked, dominant))
+
+data_test1[,-10] <- complete(imp)
+
+# miss_var_summary(data_test1)
+
+```
+
+```{r}
+
+xyplot(imp,age ~ pclass+sex,pch=18,cex=1)
+
+```
+
+#### Model:
+
+```{r model1, echo=TRUE}
+
+knn_classifier <- knn(train=data_train1[, -2], 
+                      cl=data_train1$survived,
+                      test=data_test1[, -2], 
+                      k=10,
+                      use.all=TRUE)
+```
+
+#### Macierz błędów:
+
+```{r}
+prediction <- as.numeric(knn_classifier)-1
+table('Reference'=data_test1$survived, 'Prediction'=prediction) -> table
+table
+```
+
+#### Accuracy:
+
+```{r}
+accuracy <- (table[1,1]+table[2,2])/sum(table)
+accuracy
+```
+
+### Imputacja - metoda 2 
+
+Braki danych w kolumnach **age** oraz **fare** (jeśli się pojawią) uzupełnimy medianą, w kolumnie **embarked** - modą.
+
+```{r imp2, echo=TRUE, results="hide"}
+
+data_train2 <- data_train
+
+# miss_var_summary(data_train2)
+
+data_train2$embarked <- with(data_train2[,-2], impute(embarked, dominant))
+
+data_train2$age <- with(data_train2[,-2], impute(age, median))
+
+data_train2$fare <- with(data_train2[,-2], impute(fare, median))
+
+# miss_var_summary(data_train2)
+
+# -----------------------------------------------------------------------------------
+
+data_test2 <- data_test
+
+# miss_var_summary(data_test2)
+
+data_test2$embarked <- with(data_test2[-2], impute(embarked, dominant))
+
+data_test2$age <- with(data_test2[,-2], impute(age, median))
+
+data_test2$fare <- with(data_test2[-2], impute(fare, median))
+
+# miss_var_summary(data_test2)
+```
+#### Model:
+
+```{r model2, echo=TRUE}
+
+knn_classifier <- knn(train=data_train2[, -2], 
+                      cl=data_train2$survived,
+                      test=data_test2[, -2], 
+                      k=10,
+                      use.all=TRUE)
+```
+
+#### Macierz błędów:
+
+```{r}
+prediction <- as.numeric(knn_classifier)-1
+table('Reference'=data_test2$survived, 'Prediction'=prediction) -> table
+table
+```
+
+#### Accuracy:
+
+```{r}
+accuracy <- (table[1,1]+table[2,2])/sum(table)
+accuracy
+```
+
+### Imputacja - metoda 3
+
+Przetestujmy imputację poprzez usunięcie wszystkich kolumn zawierających jakiekolwiek braki danych.
+
+```{r imp3, echo=TRUE}
+# miss_var_summary(titanic)
+
+data_train3 <- data_train%>%select(-(age),-(embarked),-(fare))
+
+data_test3 <- data_test%>%select(-(age),-(embarked),-(fare))
+
+```
+
+#### Model:
+
+```{r model3, echo=TRUE}
+
+knn_classifier <- knn(train=data_train3[, -2], 
+                      cl=data_train3$survived,
+                      test=data_test3[, -2], 
+                      k=10,
+                      use.all=TRUE)
+```
+
+#### Macierz błędów:
+
+```{r}
+prediction <- as.numeric(knn_classifier)-1
+table('Reference'=data_test3$survived, 'Prediction'=prediction) -> table
+table
+```
+
+#### Accuracy:
+
+```{r}
+accuracy <- (table[1,1]+table[2,2])/sum(table)
+accuracy
+```
+
+### Imputacja - metoda 4
+
+Przetestujmy imputację poprzez usunięcie wszystkich wierszy zawierających jakiekolwiek braki danych.
+
+```{r imp4, echo=TRUE}
+
+# miss_var_summary(titanic)
+
+data_train4 <- na.omit(data_train)
+
+data_test4 <- na.omit(data_test)
+
+```
+
+#### Model:
+
+```{r model4, echo=TRUE}
+
+knn_classifier <- knn(train=data_train4[, -2], 
+                      cl=data_train4$survived,
+                      test=data_test4[, -2], 
+                      k=10,
+                      use.all=TRUE)
+```
+
+#### Macierz błędów:
+
+```{r}
+prediction <- as.numeric(knn_classifier)-1
+table('Reference'=data_test4$survived, 'Prediction'=prediction) -> table
+table
+```
+
+#### Accuracy:
+
+```{r}
+accuracy <- (table[1,1]+table[2,2])/sum(table)
+accuracy
+```
+
+## Podsumowanie
+
+W przypadku naszych danych dla zastosowanych metod imputacji danych accuracy oscyluje pomiędzy wartościami 0.6 - 0.8 więc jest to całkiem przyzwoity wynik. Najlepiej sprawdziła się imputacja poprzez usunięcie wszystkich kolumn z brakami danych - 0.77 accuracy - natomiast najgorzej - imputacja poprzez usunięcie obserwacji z brakami danych - 0.6 accuracy. Pomiędzy uzupełnianiem średnią a medianą nie ma zbyt dużej różnicy.

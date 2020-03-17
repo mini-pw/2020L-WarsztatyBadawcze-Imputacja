@@ -1,0 +1,450 @@
+---
+title: "Warsztaty badawcze 2020 - pd 1"
+author: "Jakub Kosterna"
+date: "3/3/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Wybór zbioru danych
+
+Za cel pierwszej pracy domowej wziąłem sobie analizę zbioru **Speed Dating** (i tak samo moja decyzja była bardzo szybka - no hej, przede mną wspaniała podróż po świecie relacji damsko-męskich, czy to nie fascynujące?). Jak sama nazwa wskazuje dotyczy on danych zebranych na podstawie tak zwanych "szybkich randek". Informacje zostały zebrane podczas spotkań w latach 2002-2004 i oparte były na 4-minutowych "pierwszych randkach" z płcią przeciwną. Uczestnicy po każdej z nich byli pytani o zainteresowanie zobaczeniem potencjalnej drugiej połówki ponownie, a także mieli za zadanie ocenić ją pod kątem sześciu kryteriów:
+
+1. Atrakcyjność
+2. Szczerość
+3. Inteligencja
+4. Zabawa
+5. Ambicja
+6. Wspólne zainteresowania.
+
+Zbiór znalazłem pod Id 146607 - co ciekawe o największym numerze spośród 100 zaproponowanych.
+
+```{r odczyt, cache = TRUE, warning = FALSE, message = FALSE}
+# install.packages("OpenML") # if not installed
+library(OpenML)
+# install.packages("dplyr") # if not installed
+library(dplyr)
+# install.packages("DataExplorer") # if not installed
+library(DataExplorer)
+task.ids <- getOMLStudy('OpenML100')$tasks$task.id
+task <- getOMLTask(146607)
+data <- as.data.frame(task)
+```
+
+W kolejnych krokach skorzystamy z pakietu **DataExplorer** - jest to przydatne narzędzie udostępniające wiele ciekawych funkcji do oglądu ramki.
+
+# 2. Wstępna analiza i obróbka
+
+Przyjrzyjmy się naszemu zbiorowi lepiej. Czym są i ile jest kolumn i wierszy?
+
+```{r analiza, cache = TRUE}
+ncol(data)
+nrow(data)
+```
+
+No nieźle, aż 123 wiersze! Weźmy tylko te najciekawsze.
+
+Dokładne informacje o kolumnach znalazłem na: https://www.openml.org/d/40536
+
+Pozostawimy sobie:
+
+* gender: Gender of self
+* age: Age of self
+* age_o: Age of partner
+* d_age: Difference in age
+* attractive_o: Rating by partner (about me) at night of event on attractiveness
+* attractive: Rate yourself - attractiveness
+* attractive_partner: Rate your partner - attractiveness
+* intelligence_o: Rating by partner (about me) at night of event on intelligence
+* intelligence: Rate yourself - intelligence
+* intelligence_partner: Rate your partner - intelligence
+* decision: Decision at night of event.
+* decision_o: Decision of partner at night of event.
+* match: Match (yes/no)
+
+Obróbmy dane i zobaczmy wynik wybierając dwadzieścia losowych wierszy.
+
+```{r obrobka, cache = TRUE}
+data <- data %>% select(gender, age, age_o, d_age, attractive_o, attractive, attractive_partner,
+                 intelligence_o, intelligence, intelligence_partner, decision, decision_o, match)
+colnames(data) <- c("gender", "age", "age_o", "d_age", "attr_o", "attr", "attr_p",
+                    "intel_o", "intel", "intel_p", "decision", "decision_o", "match")
+set.seed(124)
+knitr::kable(sample_n(data, 20))
+```
+
+O kurczę pieczone!
+Wygląda na to, że społeczność *speed dating* przynajmniej w tej grupie w latach 2002-2004 jest średnio zgodna. Na ową wylosowaną dwudziestkę piątkę tylko 4 matche i 9 nieodwzajemnionych polubień.
+
+\newpage
+
+Przy okazji mamy styczność z pewnym brakiem danych, który przy surowym zbiorze może spowodować konsternację - nie wszyscy uczestnicy zabawy podali swój wiek, a jak pokazuje chociażby pierwszy wiersz, różnica wieku jest wtedy wyliczana jako informacja o wieku osoby już go posiadającego. Jak jest w przypadku dwóch niewiadomych wartości w tym temacie - nie mam pojęcia. Ale zmodyfikujmy data frame tak, żeby dla przynajmniej jednego niewiadomego wieku także i kolumnie *d_age* przypisywał NA.
+
+```{r d_age_korekta, cache = TRUE, warning = FALSE}
+data$d_age[is.na(data$age) | is.na(data$age_o)] <- NA
+```
+
+Zobaczmy efekt:
+
+```{r korekta_efekt, cache = TRUE}
+set.seed(124)
+knitr::kable(sample_n(data, 10))
+```
+
+No i elegancko, szafa gra!
+
+# 3. Braki danych i ogólne wnioski
+
+Zweryfikujmy zbiór pod kątem braków danych.
+
+```{r braki_1, cache = TRUE}
+# install.packages("naniar") # if not installed
+library(naniar)
+# install.packages("visdat") # if not installed
+library(visdat)
+library(ggplot2)
+library(dplyr)
+# install.packages("mice") # if not installed
+library(mice)
+knitr::kable(summary(data[1:7]))
+```
+
+```{r braki_2, cache = TRUE}
+knitr::kable(summary(data[8:13]))
+vis_dat(data)
+vis_miss(data)
+```
+
+Jak widzimy braki danych występują w kolumnach dotyczących wieku i oceny atrakcyjności oraz inteligencji (swojej lub partnera). Są jednak kompletne informacje w temacie płci, a także decyzji co do chęci na następne spotkanie.
+
+Najciekawsze wnioski?
+
+1. Dane dotyczą przybliżonej liczby mężczyzn i kobiet. Są tu głównie 20-kilkulatkowie
+2. Najtrudniej uczestnikom ocenić było inteligencję szybkiej-partnerki (szybkiego-partnera), najłatwiej zaś swoją atrakcyjność (patrząc na liczbę wartości NA)
+3. Przeciętna różnica wieku randkowiczów to około 3-4 lata
+4. Uczestnicy raczej dowartościowani - średnio ocenili swoją atrakcyjność o jeden punkt wyżej niż atrakcyjność drugiego uczestnika randki, a swoją inteligencję o niecałe 0,5 punkta lepiej
+
+Zweryfikujmy jeszcze liczbę nieodwzajemnionych "polubień" i wszystkich matchy.
+
+```{r ile_matchy, cache = TRUE}
+likes <- as.integer(data$decision) + as.integer(data$decision_o) - 2
+knitr::kable(prop.table(table(likes)))
+```
+
+\newpage
+
+No i mamy jeszcze jeden wniosek...
+
+5. Tylko co szósta para jednogłośnie ogłosiła chęć kolejnego spotkania. Co ciekawe **aż połowa werdyktów to nieodwzajemnione polubienia**, a tylko około 1/3 randkowiczów zgodnie stwierdziła, że nie ma co dalej marnować czasu.
+
+Co ciekawe okazuje się tu także [choć bez zaskoczeń], że wnioskowanie z ledwo 20-wierszowej losowo wygenerowanej podramki może być bardzo mylące - tak można by pomyśleć, że dalej umawia się nie co 6., ale co 20. para, zaś polubień jednostronnych jest nie połowa, a aż 3 na 4. Nie dajmy się zwieść!
+
+Wiemy już na czym stoimy w ogólnym stopniu. Skorzystajmy z narzędzi nauczonych na laboratoriach 2 w celu zdobycia jeszcze większej ilości przydatnych informacji o brakach danych w naszym Speed-datingowym zbiorze.
+
+```{r braki_3, cache = TRUE}
+gg_miss_var(data)
+gg_miss_var(data, 
+            show_pct = TRUE) + 
+  ylim(0, 100)
+```
+
+Tak oto otrzymaliśmy ładną wizualizację ilości braków danych dla kolejnych kolumn. Jak widać w każdym wypadku jest to maksymalnie kilka procent - możemy więc stąd wstępnie pomyśleć, że olanie wierszy je zawierających lub ich modyfikacja nie powinna wpłynąć bardzo na istotę zbioru.
+
+Ładną prezentację możemy także otrzymać dzięki pakietowi **DataExplorer**.
+
+```{r data_explorer, cache = TRUE}
+plot_missing(data)
+```
+
+Znając konkretne liczby możemy się spodziewać, że dla tak rzadkich braków nie powinniśmy się otrzymać dużych rożnic w analizie zależności od tego, co z nimi zrobimy.
+
+Jak widać mimo rzadkich braków, jedynie w pełni pozostają kolumny dotyczące płci, decyzji i informacji o sparowaniu. Takie dane to w gruncie rzeczy nic ciekawego, dlatego w kolejnych krokach nie będę sprawdzał efektów dla usunięcia kolumn zawierających jakiekolwiek brakujące informacje.
+
+\newpage
+
+# 4. Wizualizacje i wnioski suchych danych z NA (usunięte wiersze i kolumny)
+
+Usuńmy brakujące wartości.
+
+```{r usun_braki, cache = TRUE}
+data_no_na <- na.omit(data)
+print(paste("Usunietych wierszy:", nrow(data) - nrow(data_no_na)))
+print(paste("Procent usunitych wierszy:", round((nrow(data) - nrow(data_no_na)) / nrow(data) * 100, 2), "%"))
+```
+
+
+## 4.1. Ocena potencjalnej drugiej połówki a różnica wieku
+
+
+```{r suche_1, cache = TRUE}
+ggplot(data_no_na, 
+       aes(x = d_age, 
+           y = attr_p)) +   
+  geom_smooth()
+```
+
+
+O proszę! Jak można się spodziewać, zbliżony wiek sprzyja lepszej ocenie. Ciekawie robi się od około 8 lat w góre, gdzie do różnicy wieku ~18 lat ocena atrakcyjności wzrasta, a potem maleje. Jeżeli przybliżenie poprzez *geom_smooth* na niezbyt dużym zbiorze danych można brać na poważnie.
+
+
+## 4.2. Inteligencja i atrakcyjność partnera a decyzja
+
+```{r suche_2, cache = TRUE}
+g1 <- ggplot(data_no_na, aes(x = decision, y = attr_p)) +
+  geom_boxplot()
+g2 <- ggplot(data_no_na, aes(x = decision, y = intel_p)) +
+  geom_boxplot()
+library(gridExtra)
+grid.arrange(g1, g2, ncol=2)
+```
+
+Mediana ocen speed-partnerów uznanych za godnych następnego spotkania jest niemalże równa trzeciemu kwantylowi niewybranych. Dotyczy to zarówno inteligencji jak i atrakcyjności. Co ciekawe, uczestnicy zdecydowanie lepiej ocenili inteligencję niż atrakcyjność swoich randkowiczów - wykres skrzynkowy inteligencji niewybranych partnerów jest niemalże identyczny do boxplota wybranych biorąc pod uwagę atrakcyjność.
+
+Okazuje się jednak, że o wiele bardziej istotna jest atrakcyjność niż inteligencja w kwestii chęci przyjścia na następną randkę - różnica mediany dla atrakcyjności ogólnej wyniosła około dwa punkty, zaś dla inteligencji - niecały jeden.
+
+## 4.3. Różnica wieku i płeć a matche
+
+```{r suche_3, cache = TRUE, message = FALSE}
+ggplot(data_no_na, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1)
+```
+
+Zarówno kobiety jak i mężczyźni najczęściej na match mogą liczyć w wieku lat 25. Najczęściej odpychane są 23-latki i 33-latki, a także 32-33-latkowie. Czemu 30-paro-latkowie mają takie problemy z dogadaniem się? Tego nie wiem, acz intryguje.
+
+# 5. Wizualizacje i wnioski pustych danych zastąpionych średnimi
+
+Zastąpmy średnimi.
+
+```{r zastap_srednia, cache = TRUE, message = FALSE}
+imp <- mice(data, method = "mean", m = 1, maxit = 1)
+```
+
+Wypełnijmy naszą nową ramkę danych.
+
+```{r kompletna_srednia, cache = TRUE, message = FALSE}
+data_mean <- complete(imp)
+```
+
+## 5.1. Ocena potencjalnej drugiej połówki a różnica wieku
+
+```{r srednia_1, cache = TRUE, message = FALSE}
+ggplot(data_mean, 
+       aes(x = d_age, 
+           y = attr_p)) +   
+  geom_smooth()
+```
+
+Bez widocznych zmian - zastąpienie średnimi nie wpłynęło na efekt.
+
+## 5.2. Inteligencja i atrakcyjność partnera a decyzja
+
+```{r srednia_2, cache = TRUE, message = FALSE}
+g1 <- ggplot(data_mean, aes(x = decision, y = attr_p)) +
+  geom_boxplot()
+g2 <- ggplot(data_mean, aes(x = decision, y = intel_p)) +
+  geom_boxplot()
+grid.arrange(g1, g2, ncol=2)
+```
+
+Mediana oceny atrakcyjności partnera się zmieniła - wzrosła z 5 aż do 6!
+
+Uśrednienie zaburzyło nam efekt i różnice między postrzeganą inteligencją a ogólną atrakcyjnością wydają się być teraz mniejsze - błędnie.
+
+## 5.3. Różnica wieku i płeć a matche
+
+```{r srednia_3, cache = TRUE, message = FALSE}
+ggplot(data_mean, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1)
+```
+
+Nie widać istotnych różnic.
+
+## 5.4. Zastępowanie średnimi ogólnie
+
+```{r srednia_4, cache = TRUE, message = FALSE}
+densityplot(imp)
+```
+
+Ze względu na małą liczbę braków danych zastąpienie ich średnimi nie wpłynęło istotnie na wynik naszej analizy i wniosków z niej płynących. Można więc strzelać, że parę procent braków na każdą kolumnę to w praktyce żadna strata.
+
+# 6. Wizualizacje i wnioski pustych danych zastąpionych losowymi
+
+Zastąpmy brakujące wartości losowymi z naszej próbki.
+
+```{r zastap_losowa, cache = TRUE, message = FALSE}
+imp2 <- mice(data, method = "sample", m = 1, maxit = 1)
+```
+
+Wypełnijmy naszą nową ramkę danych.
+
+```{r kompletna_losowa, cache = TRUE, message = FALSE}
+data_sample <- complete(imp2)
+```
+
+## 6.1. Ocena potencjalnej drugiej połówki a różnica wieku
+
+```{r losowa_1, cache = TRUE, message = FALSE}
+ggplot(data_sample, 
+       aes(x = d_age, 
+           y = attr_p)) +   
+  geom_smooth()
+```
+
+Bez widocznych zmian - zastąpienie losowymi nie wpłynęło na efekt.
+
+## 6.2. Inteligencja i atrakcyjność partnera a decyzja
+
+```{r losowa_2, cache = TRUE, message = FALSE}
+g1 <- ggplot(data_sample, aes(x = decision, y = attr_p)) +
+  geom_boxplot()
+g2 <- ggplot(data_sample, aes(x = decision, y = intel_p)) +
+  geom_boxplot()
+grid.arrange(g1, g2, ncol=2)
+```
+
+Sytuacja jak dla wzięcia średniej zamiast pustych danych - mediana postrzeganej atrakcyjności wzrosła.
+
+## 6.3. Różnica wieku i płeć a matche
+
+```{r losowa_3, cache = TRUE, message = FALSE}
+ggplot(data_sample, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1)
+```
+
+Nie widać istotnych różnic.
+
+## 6.4. Zastępowanie losowymi ogólnie
+
+```{r losowa_4, cache = TRUE, message = FALSE}
+densityplot(imp2)
+```
+
+Zastąpienie brakujących danych losowymi wartościami poskutkowało jeszcze bardziej zbliżonymi wykresami gęstości niż zastępowanie ich średnimi. Niby z matematycznego punktu widzenia ma to sens (patrz: Prawa Wielkich Liczb) i zbiorcze wyniki dla całej populacji często dla takiej modyfikacji zapewne są bardziej zbliżone do rzeczywistości niż uśredniane, takie dane można wyrzucić do kosza patrząc na jednostki - konkretnym Jankom i Aniom przypisujemy informacje zupełnie bez ładu i składu, tożto nonsens.
+
+# 7. Podsumowanie oglądu danych według różnych sposobów radzenia sobie z brakami
+
+Biorąc pod uwagę małą liczbę braków, niezależnie od usunięcia wierszy zawierających wartości NA, zastępowanie brakujących wartości średnimi czy zamienianie ich na losowe z odpowiadajej jej kolumny, nie wpłynęło na ogólną analizę danych jako na zbiorczy twór - przynajmniej na pierwszy rzut oka. Można wysnuć wniosek, że zastępowanie liczbami losowymi globalnie daje efekt bardziej zbliżony do rzeczywistości, lecz zamienianie na średnie mniej burzy obraz jednostek.
+
+# 8. Algorytm uczenia maszynowego
+
+## 8.1. Wprowadzenie
+
+Zbiorami danych, na których wytrenujemy nasz algorytm będą te utworzone w rodziałach 4., 5. i 6.:
+
+1. *data_no_na* - z usuniętymi wierszami posiadającymi wartości NA
+2. *data_mean* - z wartościami brakującymi zastąpionymi średnimi
+3. *data_sample* - z NA zamienionymi na losowe z odpowiadających kolumn
+
+Cechami niech będą kolumny: *gender*, *age*, *age_o*, *d_age*, *attr_0*, *attr*, *attr_p*, *intel_o*, *intel* i *intel_p* a klasą - *match*.
+
+Można by także dokonać ciekawej klasyfikacji trenując nasz algorytm pod prognozowanie *decision* lub *decision_o* - zdecydowałem się jednak na *match*, ponieważ to on odpowiada za finalny efekt i najważniejszy wynik randki, a przy tym na swój sposób ma "pod sobą" dwa wspomniane.
+
+Mamy tutaj styczność z typową **klasyfikacją binarną**.
+
+```{r uczenie_wprowadzenie, cache = TRUE}
+cechy <- colnames(data_no_na)[1:10]
+klasa <- colnames(data_no_na)[13]
+
+p <- length(cechy)
+n_no <- nrow(data_no_na) # liczba wierszy w wariancie usuwania tych z NA
+n <- nrow(data_mean) # liczba wierwszy w wariancie zastępowania brakujących
+```
+
+## 8.2. Podział na zbiór testowy i treningowy
+
+```{r podzial, cache = TRUE}
+set.seed(123)
+
+id_train_n <- sample(1:n, 4/5 * n)
+id_train_n_no <- sample(1:n_no, 4/5 * n_no)
+
+df_train_no_na <- data_no_na[id_train_n_no, c(cechy, klasa)]
+df_train_sample <- data_sample[id_train_n, c(cechy, klasa)]
+df_train_mean <- data_mean[id_train_n, c(cechy, klasa)]
+
+id_test_n <- (1:n)[-id_train_n]
+id_test_n_no <- (1:n_no)[id_train_n_no]
+
+df_test_no_na <- data_no_na[id_test_n_no, c(cechy, klasa)]
+df_test_sample <- data_sample[id_test_n_no, c(cechy, klasa)]
+df_test_mean <- data_mean[id_test_n, c(cechy, klasa)]
+```
+
+Dzięki takim samym wylosowanym indeksowym treningowym, będziemy mogli porównać wyniki dla *data_sample* i *data_mean* dla tych samych wierszach. Operacja będzie niestety niemożliwa dla *data_no_na* ze względu na inną wielkość analizowanych wartości.
+
+## 8.3. Klasyfikacja z pomocą drzewa klasyfikacyjnego
+
+No nie powiem, urzekły mnie te wesołe binarne cosie z labów trzecich.
+
+Przetwórzmy najpierw dla ramki z usuniętymi wierszami zawierającymi NA.
+
+```{r klasyfikacja_no_na, cache = TRUE}
+# install.packages("rpart") # if not installed
+library(rpart)
+tree_classifier_no_na <- rpart(match~., data = df_train_no_na)
+par(mar = c(1,1,1,1))
+par(xpd = TRUE)
+
+# install.packages("rattle") # if not installed
+library(rattle)
+fancyRpartPlot(tree_classifier_no_na, caption = NULL)
+
+predict(tree_classifier_no_na, newdata = df_test_no_na[,cechy], type="class")[1:20]
+predict(tree_classifier_no_na, newdata = df_test_no_na[,cechy], type="prob")[1:20]
+
+tree_classifier_parameter_change_no_na <- rpart(match~., data=df_test_no_na,
+  parms = list(split = 'information'), 
+  minsplit = 10,
+  cp = 0.01)
+fancyRpartPlot(tree_classifier_parameter_change_no_na, caption = NULL)
+```
+
+O proszę! Wychodzi na to, że algorytm stwierdził, że to jednak atrakcyjność ma kluczową wartość - o wiele większą niż inteligencja. Sprawdźmy jeszcze efekt dla dwóch pozostałych utworzonych ramek.
+
+```{r klasyfikacja_sample, cache = TRUE}
+tree_classifier_sample <- rpart(match~., data = df_train_sample)
+par(mar = c(1,1,1,1))
+par(xpd = TRUE)
+
+fancyRpartPlot(tree_classifier_sample, caption = NULL)
+
+predict(tree_classifier_sample, newdata = df_test_sample[,cechy], type="class")[1:20]
+predict(tree_classifier_sample, newdata = df_test_sample[,cechy], type="prob")[1:20]
+
+tree_classifier_parameter_change_sample <- rpart(match~., data=df_test_sample,
+  parms = list(split = 'information'), 
+  minsplit = 10,
+  cp = 0.01)
+fancyRpartPlot(tree_classifier_parameter_change_sample, caption = NULL)
+```
+
+Dla wylosowanych wartości "wymagania" na match w liczbach wzrosły, ale w praktyce tylko pozornie - wciąż na porozumienie według drzewek mogą liczyć tylko ci o ocenie własnej atrakcyjności i swojego partnera równej przynajmniej 8.
+
+A jak będzie wyglądał wynik dla uśrednionych liczb?
+
+```{r klasyfikacja_mean, cache = TRUE}
+tree_classifier_mean <- rpart(match~., data = df_train_mean)
+par(mar = c(1,1,1,1))
+par(xpd = TRUE)
+
+fancyRpartPlot(tree_classifier_mean, caption = NULL)
+
+predict(tree_classifier_mean, newdata = df_test_mean[,cechy], type="class")[1:20]
+predict(tree_classifier_mean, newdata = df_test_mean[,cechy], type="prob")[1:20]
+
+tree_classifier_parameter_change_mean <- rpart(match~., data=df_test_mean,
+  parms = list(split = 'information'), 
+  minsplit = 10,
+  cp = 0.01)
+fancyRpartPlot(tree_classifier_parameter_change_mean, caption = NULL)
+```
+
+Niesamowite! Nagle dodatkowym "warunkiem"... stał się wiek partnera przynajmniej 26 lat.
+
+Podsumowując metoda drzewa klasyfikacyjnego wydaje się być mocno taka sobie - z zaproponowanych 10 cech wzięła pod uwagę tylko dwie, a w przypadku uzupełnienia braków danych średnimi wartościami - trzy z nich. Wynik jest bardzo ogólny i mało satysfakcjonujący.
