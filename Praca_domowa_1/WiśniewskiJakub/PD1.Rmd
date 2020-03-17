@@ -2,7 +2,12 @@
 title: "Praca domowa 1"
 author: "Jakub Wiśniewski"
 date: "3/8/2020"
-output: html_document
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -12,8 +17,8 @@ knitr::opts_chunk$set(message  = FALSE)
 
 
 ```
-
-### Dane 
+# Eksploracja Danych 
+## Dane 
 Dane pochodzą z OpemML100, jest to zbiór https://www.openml.org/d/29 . Jest ciekawy do eksploracji, ponieważ ma zmienne kategoryczne i ciągłe, o różnych rozkładach, oraz kilka missing values. 
 ```{r, include=FALSE}
 library(dplyr)
@@ -25,9 +30,9 @@ library(naniar)
 df <- read.csv("dataset_29_credit-a.csv", stringsAsFactors = FALSE)
 
 ```
-## 1. Eksploracja Danych 
 
-### 1.1 Typy, struktura danych
+
+## Typy, struktura danych
 
 Dane mają konkretną strukturę
 ```{r}
@@ -87,7 +92,7 @@ Braki nie wydają się również być ze sobą połączone, chociaż wartości t
 gg_miss_upset(df)
 ```
 
-### 1.2 Rozkłady kolumn
+## Rozkłady kolumn
 Kolumny, które mają rozkłady dyskretne, prezentują sie tak:
 ```{r}
 DataExplorer::plot_bar(df)
@@ -98,7 +103,7 @@ Zmienne ciągłe nie mają rozkładów normalnych. Jedyną zmienną, której roz
 DataExplorer::plot_histogram(df)
 ```
    
-## 3. Zaawansowana Analiza  
+## Zaawansowana Analiza  
    
 Sprawdźmy, jak bardzo różni się rozkład zmiennej A2 od rozkładu normalnego . Widzimy, że na "ogonach" odbiega on znacznie od rozkładu normalnego.
 ```{r}
@@ -143,8 +148,9 @@ ggplot(df, aes(A11, fill = class)) + geom_density(alpha = 0.5)
 
 
 
-## 4. Uczenie maszynowe z wykorzystaniem różnych prostych technik obróbki brakujących danych
+# Uczenie maszynowe z wykorzystaniem różnych prostych technik obróbki brakujących danych
 
+## Przygotowanie danych, modeli
 Algorytm machine learningowy, z którego będę korzystał to Random Forest (uwielbiam ten algorytm, gdyż robiłem go na projekt w Javie i totalnie się nie udało :( ).
 ```{r}
 library(randomForest) # korzystamy z Lasu Losowego 
@@ -216,9 +222,11 @@ test3 <- categorical_input_mode(test3)
 
 
 ```{r}
-
-
+library(caret) # for confussion matrix
 acc <- c(0,0,0)
+precision <- c(0,0,0)
+recall <- c(0,0,0)
+Fmeasure <- c(0,0,0)
 
 for (i in 1:100){
 
@@ -232,15 +240,42 @@ pred1 <- predict(model_rf_1, newdata = test1)
 pred2 <- predict(model_rf_2, newdata = test2)
 pred3 <- predict(model_rf_3, newdata = test3)
 
-
+# accuracy
 acc[1] <- acc[1] + sum(test1$class == pred1)/length(pred1)
 acc[2] <- acc[2] +  sum(test2$class == pred2)/length(pred2)
 acc[3] <- acc[3] + sum(test3$class == pred3)/length(pred3)
 
+
+# confusion matrix 
+
+# Precision TP / (TP + FP)
+precision[1] <- precision[1] +precision(data = pred1 , reference = test1$class)
+precision[2] <- precision[2] + precision(data = pred2 , reference = test2$class)
+precision[3] <- precision[3] + precision(data = pred3 , reference = test3$class)
+
+# Recall TP/(TP+FN)
+recall[1] <- recall[1] +  recall(data = pred1 , reference = test1$class)
+recall[2] <- recall[1] +  recall(data = pred2 , reference = test2$class)
+recall[3] <- recall[1] +  recall(data = pred3 , reference = test3$class)
+
+# 2* (precision*recall)/(precision + recall)
+Fmeasure[1] <- Fmeasure[1] +   F_meas(data = pred1 , reference = test1$class)
+Fmeasure[2] <- Fmeasure[1] +   F_meas(data = pred2 , reference = test2$class)
+Fmeasure[3] <- Fmeasure[1] +   F_meas(data = pred3 , reference = test3$class)
+
+
 }
-acc/100
+
+ res <- data.frame(Measure =  c(acc/100, precision/100,recall/100,Fmeasure/100),
+                  Measure_type = c(rep("Accuracy",3), rep("Precision",3), rep("Recall",3), rep("Fmeasure",3)), 
+                   Model_type = rep(c("Ommiting Na", "Ommiting columns with NA", "Replacing with median/mode"),4))
+
+ggplot(res, aes(Measure_type,Measure, fill=Model_type)) + geom_bar(position = "dodge", stat = "identity") + 
+  scale_fill_manual(values = c("#bd18cc","#04b076","#faa00f")) + theme_bw() + ggtitle("Wyniki modeli dla różnych miar i sposobów inputacji")
+
+res
 
 ```
 
-## 5. Podsumowanie
-Jak dało się wywnioskować najlepszym narzędziem okazało okazało się wstawienie mediany i mody, aczkolwiek brakujących danych było tak mało, że ta różnica jest znikoma. Lasy losowe również nie dają jednoznacznych wyników, bo są "losowe". Dlatego postanowiłem wziąć średnią z 100 modeli, co nadaje większej pewności wynikom. Również bez zaskoczeń okazało się to, że model uczony na zbiorze z mniejszą ilością kolumn wypadł najgorzej.
+## Analiza wyników
+Moim zdaniem najlepszym narzędziem okazało okazało się wstawienie mediany i mody, aczkolwiek brakujących danych było tak mało, że ta różnica jest znikoma. Lasy losowe również nie dają jednoznacznych wyników, bo są "losowe". Dlatego postanowiłem wziąć średnią z 100 modeli, co nadaje większej pewności wynikom. Również bez zaskoczeń okazało się to, że model uczony na zbiorze z mniejszą ilością kolumn wypadł najgorzej.
