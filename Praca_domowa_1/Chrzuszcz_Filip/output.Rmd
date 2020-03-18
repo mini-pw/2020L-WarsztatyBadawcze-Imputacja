@@ -1,0 +1,242 @@
+---
+title: "Praca_domowa_1"
+author: "Filip Chrzuszcz"
+date: "3/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r loading, include=FALSE}
+library(OpenML)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(mice)
+library(mlr3)
+library(data.table)
+library(mlr3learners)
+library(mlr3viz)
+library(caTools)
+options(stringsAsFactors = FALSE)
+set.seed(123)
+
+
+cjs_openml <- getOMLDataSet(data.id = 23380)
+cjs <- cjs_openml$data
+cjs$TREE <- NULL
+cjs$N <- NULL
+cjs$BR <- as.numeric(cjs$BR)
+cjs$TR <- as.factor(cjs$TR)
+
+completeFun <- function(data, desiredCols) {
+  completeVec <- complete.cases(data[, desiredCols])
+  return(data[completeVec, ])
+}
+cjs <- completeFun(cjs,"BR")
+cjs$na <- rowSums(is.na(cjs))
+
+sample1 <- sample.int(n = nrow(cjs), size = floor(.8*nrow(cjs)), replace = F)
+train <- cjs[sample1, ]
+test  <- cjs[-sample1, ]
+
+
+```
+
+
+## Wizualizacja braków
+
+W danych brakuje sporej częsci danych, jednakże po zagłebieniu sie w znaczenie tych braków, szybko się wyjaśnia, iż są one dość naturalne i spodziewane
+
+```{r missing}
+
+vis_dat(cjs)
+vis_miss(cjs, cluster = TRUE)
+```
+
+
+Dla uzmysłowienia ilości braków danych względem poszczególnych kolumn reprezentujących rozgałęzienia w danych zrobiłem kilka wykresów ukazujących długość różnych części drzewa w zależności od zastosowanych środków mających kontrolować ich wzrost.
+
+
+```{r}
+ggplot(cjs, 
+       aes(x = TL, 
+           y = INTERNODE_2)) + 
+  geom_miss_point() + 
+  facet_wrap(~TR)
+
+
+ggplot(cjs, 
+       aes(x = TL, 
+           y = INTERNODE_20)) + 
+  geom_miss_point() + 
+  facet_wrap(~TR)
+
+```
+
+Histogram długości korzenia vs dlugosci poszczególnych gałęzi z zaznaczeniem braków danych.
+
+```{r,include=FALSE}
+cjs %>% bind_shadow() %>% glimpse()
+```
+
+
+```{r}
+
+
+
+cjs %>%   bind_shadow() %>%
+  ggplot(aes(x = TL, fill=INTERNODE_2_NA))+
+  geom_histogram()
+
+
+cjs %>%   bind_shadow() %>%
+  ggplot(aes(x = TL, fill=INTERNODE_20_NA))+
+  geom_histogram()
+```
+
+Ciekawy wykres ukazujący narost braku kolejnych danych dla coraz większych numerów gałęzi.
+
+```{r}
+gg_miss_var_cumsum(cjs)
+```
+```{r}
+wynik<- function(data){
+   
+task_cjs = TaskClassif$new(id = "cjs", backend = data, target = "TR")
+
+learner = mlr_learners$get("classif.xgboost")
+
+learner$param_set$values = mlr3misc::insert_named(
+  learner$param_set$values,
+  list(nrounds = 10,nthread=4,max_depth=10,gamma=2,max_delta_step=5,min_child_weight=5)
+)
+
+learner$train(task_cjs, row_ids = rownames(as.numeric(unlist(train))))
+cv = rsmp("cv", folds = 5)
+rr = resample(task_cjs, learner, cv, store_models = TRUE)
+print(rr$aggregate(msr("classif.acc")))
+
+}
+
+```
+
+## Pozostawienie NA
+
+```{r first,message=FALSE}
+#1
+cjs1 <- cjs
+cjs1$BR <- as.numeric(cjs1$BR)
+cjs <- cjs1
+
+wynik(cjs)
+
+
+```
+
+
+
+## Zastąpienie wszystkcih NA zerami 
+
+```{r first1,message=FALSE,include=FALSE}
+#1
+cjs1 <- cjs
+cjs1$BR <- as.numeric(cjs1$BR)
+cjs1[is.na(cjs1)] <- 0
+cjs <- cjs1
+
+```
+
+```{r}
+wynik(cjs)
+
+```
+
+
+## Usunięcie kolumn które mają ponad 50% NA oraz uzupelnienie pozostalych NA zerami
+
+```{r first2,message=FALSE,include=FALSE}
+#1
+cjs1 <- cjs
+cjs1$BR <- as.numeric(cjs1$BR)
+cjs1[, which(colMeans(!is.na(cjs1)) > 0.5)]
+cjs1[is.na(cjs1)] <- 0
+cjs <- cjs1
+
+```
+
+```{r}
+wynik(cjs)
+
+```
+
+
+
+
+## To samo co poprzednio, ale najpierw usuwam kolumny w których jest więcej niż 3% NA
+```{r second,message=FALSE,include=FALSE}
+#2
+cjs1 <- cjs
+cjs1$BR <- as.numeric(cjs1$BR)
+cjs1 <- cjs1[, which(colMeans(!is.na(cjs1)) > 0.03)]
+cjs1[is.na(cjs1)] <- 0
+cjs <- cjs1
+
+```
+
+
+```{r}
+wynik(cjs)
+```
+
+
+
+
+
+##  Użycie uzupełpeniania z pakietem mice oraz metoda uzupełniania średnimi po uprzednim odrzuceniu kolumn z NA powyzej 50%
+```{r,second2, message=FALSE,include=FALSE}
+train1 <- train[, which(colMeans(!is.na(train)) > 0.5)]
+imp1 <- mice(train1, method = "mean", m = 1, maxit = 1)
+train1 <- complete(imp1,1)
+
+
+test1 <- test[, which(colMeans(!is.na(test)) > 0.5)]
+imp2 <- mice(test1, method = "mean", m = 1, maxit = 1)
+test1 <- complete(imp2,1)
+
+```
+
+```{r}
+wynik(train1)
+```
+
+
+
+
+## NA rate = 3% oraz metoda "predict"
+```{r,second1, message=FALSE,include=FALSE}
+
+train2 <- train[, which(colMeans(!is.na(train)) > 0.03)]
+imp2 <- mice(train2, method = "norm.predict", m = 1, maxit = 1)
+train2 <- complete(imp2,1)
+xyplot(imp2,INTERNODE_2 ~INTERNODE_3+INTERNODE_4,pch=18,cex=1)
+xyplot(imp2,INTERNODE_9 ~INTERNODE_3+INTERNODE_4,pch=18,cex=1)
+
+test2 <- test[, which(colMeans(!is.na(test)) > 0.03)]
+imp2 <- mice(test2, method = "norm.predict", m = 1, maxit = 1)
+test2 <- complete(imp2,1)
+
+
+```
+
+```{r}
+wynik(train2)
+
+```
+
+

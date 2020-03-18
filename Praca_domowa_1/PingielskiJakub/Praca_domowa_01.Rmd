@@ -1,0 +1,199 @@
+---
+title: "Praca domowa 1"
+author: "Jakub Pingielski"
+date: "3/8/2020"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning  = FALSE)
+knitr::opts_chunk$set(message  = FALSE)
+
+
+```
+
+
+```{r, include=FALSE}
+
+library(OpenML)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(mice)
+library(caret)
+library(pROC)
+library(scales)
+library(DT)
+
+data <- getOMLDataSet(data.id = 42)
+data <- data$data
+```
+
+Problem to solve: classify soy plants into 19 different categories of deseases.
+```{r}
+
+# Clearly visible blocks of missing values
+vis_dat(data)
+
+
+# Columns with most missing values
+DT::datatable(miss_var_summary(data) %>% head(10))
+
+
+# Combinations of missing data
+gg_miss_upset(data)
+
+```
+
+```{r}
+
+# Most missing data in July
+data %>%
+    bind_shadow() %>%
+    ggplot(aes(x = date,
+               fill = hail_NA )) +
+    geom_histogram(stat = "count")
+
+
+# Collapsing 19 classes into 2: most popular category vs rest
+differentSpots <- levels(data$class)[grepl("brown-spot$", levels(data$class))]
+
+data$class <- ifelse(data$class %in% differentSpots, "spot", "other")
+
+# Brown spot desease occurs mostly in may and june , whilst other deseases have their peak in september
+ggplot(data, aes(x = date)) + 
+    geom_histogram(stat="count") + 
+    facet_grid("class")
+
+```
+
+# Removing missing data
+```{r}
+data_remove_na <- na.omit(data)
+
+X <- data_remove_na %>% select(-"class")
+Y <- data_remove_na$class
+
+# Train / test split
+trainingRows <- createDataPartition(Y, p = 0.7, list= FALSE)
+
+trainX <- X[trainingRows, ] 
+trainY <- as.factor(Y[trainingRows] )
+testX <- X[-trainingRows, ] 
+testY <- as.factor(Y[-trainingRows])
+
+# Repeated 5-fold Cross Validation
+ctrl <- trainControl(method = "repeatedcv",
+                     summaryFunction = twoClassSummary, # Add AUC, sensitivity, specificity to model results
+                     classProbs = TRUE,
+                     number = 5,
+                     repeats = 5)
+
+# Random forest
+rfFit <- train(x = trainX, y = trainY, 
+               method = "rf", 
+               ntree = 10,
+               tuneLength = 10,
+               metric='Accuracy', 
+               trControl = ctrl)
+
+rfFit
+
+confusionMatrix(predict(rfFit, testX), 
+                as.factor(testY),
+                positive = "spot")
+
+# Getting class probabilities
+rfTestPred <- predict(rfFit, testX, type = "prob")
+
+# Creating roc object
+RFrocCurve <- roc(testY, rfTestPred[, "spot"], ci = TRUE)
+
+# AUC value
+auc(RFrocCurve)
+
+# plotting ROC
+plot.roc(RFrocCurve, 
+         legacy.axes = TRUE,
+         main="ROC",
+         percent=TRUE,
+         col = "#1c61b6")
+
+
+```
+
+# Mode imputation
+```{r}
+
+# Filling with mode
+impute_mode <- function(x) { 
+    replace(x, is.na(x), Mode(na.omit(x)))
+    }
+
+Mode <- function(x) {
+    ux <- unique(x)
+    ux[which.max(tabulate(match(x, ux)))]
+}
+
+data_fill_mode <- data %>% mutate_if(is.factor, impute_mode)
+
+X <- data_fill_mode %>% select(-"class")
+Y <- data_fill_mode$class
+
+# Train / test split
+trainingRows <- createDataPartition(Y, p = 0.7, list= FALSE)
+
+trainX <- X[trainingRows, ] 
+trainY <- as.factor(Y[trainingRows] )
+testX <- X[-trainingRows, ] 
+testY <- as.factor(Y[-trainingRows])
+
+# Repeated 5-fold Cross Validation
+ctrl <- trainControl(method = "repeatedcv",
+                     summaryFunction = twoClassSummary, # Add AUC, sensitivity, specificity to model results
+                     classProbs = TRUE,
+                     number = 5,
+                     repeats = 5)
+
+# Random forest
+rfFit <- train(x = trainX, y = trainY, 
+               method = "rf", 
+               ntree = 10,
+               tuneLength = 10,
+               metric='Accuracy', 
+               trControl = ctrl)
+
+rfFit
+
+confusionMatrix(predict(rfFit, testX), 
+                as.factor(testY),
+                positive = "spot")
+
+# Getting class probabilities
+rfTestPred <- predict(rfFit, testX, type = "prob")
+
+# Creating roc object
+RFrocCurve <- roc(testY, rfTestPred[, "spot"], ci = TRUE)
+
+# AUC value
+auc(RFrocCurve)
+
+# plotting ROC
+plot.roc(RFrocCurve, 
+         legacy.axes = TRUE,
+         main="ROC",
+         percent=TRUE,
+         col = "#1c61b6")
+
+```
+
+# Conclusion
+
+Both removing missing values and mode imputation resulted in almost perfect accuracy.
