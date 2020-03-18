@@ -1,0 +1,83 @@
+---
+title: "Warsztaty Badawcze PD1"
+author: "Jacek Wiśniewski"
+date: "16/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(mice)
+library(anchors)
+library(mlr3)
+library(data.table)
+library(mlr3learners)
+```
+
+# Wstęp
+
+W tej pracy zająłem się zbiorem danych "profb" znalezionym na stronie openML. Zbiór przedstawia wyniki meczy futbolu amerykańskiego z lat 1989-1991. Niżej prezentuję analizę problemu uzupełniania brakujących danych.
+
+# Analiza zbioru
+
+### Wstępna eksploracja
+
+```{r}
+data <- read.csv("C:/Users/jwisn/Downloads/profb.csv")
+data <- replace.value(data, c("Weekday", "Overtime"), from = "?", to = NA)
+levels(data$Overtime) <- factor(c("no", "yes"))
+vis_dat(data)
+vis_miss(data, cluster = TRUE)
+md.pattern(data, rotate.names = TRUE)
+gg_miss_upset(data)
+```
+
+### Tworzenie modelu
+
+W obliczu wybrakowanej w ponad 90% kolumnie "Overtime" zdecydowałem, że ta kolumna nie dostarczy nam wartościowych danych dla modelu i warto ją usunąć. Ze względu na to, że usunięcie wybrakowanych wierszy znacząco zmniejszyłoby rozmiar dancyh ograniczyłem się do dwóch wariantów budowania modelu:
+
+
+1. Dla danych uzupełnionych w kolumnie "Weekday"
+2. Dla danych pomniejszonych o tę kolumnę
+
+
+A tak się prezentują wyniki predykcji:
+
+```{r include = FALSE}
+imp <- mice(data, method = "pmm", m = 1, maxit = 1)
+data_imputed <- complete(imp)[,-10]
+data_removed_cols <- data[,c(-9, -10)]
+```
+
+```{r}
+# Model imputed
+
+task_imputed = TaskClassif$new(id = "data_imputed", backend = data_imputed, target = "Home.Away")
+train_set_imputed <- sample(task_imputed$nrow, 0.8 * task_imputed$nrow)
+test_set_imputed <- setdiff(seq_len(task_imputed$nrow), train_set_imputed)
+
+learner_imputed = mlr_learners$get("classif.log_reg")
+learner_imputed$train(task_imputed, row_ids = train_set_imputed)
+prediction_imputed = learner_imputed$predict(task_imputed, row_ids = test_set_imputed)
+prediction_imputed %>% as.data.table() %>% count(truth == response)
+
+# Model remove cols
+
+task_removed_cols = TaskClassif$new(id = "data_removed_cols", backend = data_removed_cols, target = "Home.Away")
+train_set_removed_cols <- sample(task_removed_cols$nrow, 0.8 * task_removed_cols$nrow)
+test_set_removed_cols <- setdiff(seq_len(task_removed_cols$nrow), train_set_removed_cols)
+
+learner_removed_cols = mlr_learners$get("classif.log_reg")
+learner_removed_cols$train(task_removed_cols, row_ids = train_set_removed_cols)
+prediction_removed_cols = learner_removed_cols$predict(task_removed_cols, row_ids = test_set_removed_cols)
+prediction_removed_cols %>% as.data.table() %>% count(truth == response)
+```
+
+# Wnioski
+
+W sytuacji kiedy brakuje danych tylko w dwóch kolumnach oraz braki w tych kolumnach są na poziomie 80-90%, warto rozważyć usunięcie tych kolumn, zamiast stosowania metod imputacji danych.
