@@ -65,6 +65,11 @@ Należy wybrać jeden zbiór danych z [OpenML100](https://www.openml.org/search?
 
 Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowanie wyników. Na zajęciach każdy powinien zaprezentować 5 min podsumowanie.
 
+W folderze [datasets](/datasets/) stworzymy bazę zbiorów danych. Dla każdego zbioru danych należy stworzyć folder o nazwie *openml_dataset_id*. W podfolderze powinien znajdować się:
+- `code.R` - skrypt, w których wykonywane jest czyszczenie danych (zmiana typów danych, usunięcie kolumn, zakodowanie pewnych znaków jako `NA`) należy przygotować według [wzoru](/skrypty/code_preprocessing.R). W tym skrypcie nie należy wykonywać imputacji brakujących danych.
+Ważne, aby w skrypcie ostateczny zbiór danych zpisany był w zmiennej `dataset` a nazwa zmiennej objaśnianej `target_column`.
+- `dataset.json` - plik json z najważniejszymi charakterystykami **wyczyszczonego zbioru danych**. Kod do jego wygenerowania znajduje się [tutaj](/skrypty/create_summary_json.R)
+
 ### Praca domowa 2
 
 
