@@ -1,0 +1,149 @@
+---
+title: "Warsztaty Badawcze - Imputacja - PD1"
+author: "Dawid Przybyliński"
+date: "March 16, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Zbiór danych
+
+Badany zbiór to *breast-w* z OpenML. Zawiera on informacje o raku piersi 699 pacjentek. Zmienną celu jest informacja czy rak jest złośliwy czy też nie. Braki danych występują w kolumnie *Bare_Nuclei* - jest ich 16. Wobec tego sprawdzimy czy tak mała liczba brakujących danych może mieć jakikolwiek zauważalny wpływ na wyniki algorytmu uczenia maszynowego. 
+
+```{r include=FALSE}
+library(ggplot2)
+library(mlr3)
+library(data.table)
+set.seed(123)
+dane <- read.csv("~/Documents/github/openml_phpJNxH0q.csv")
+```
+
+Braki danych początkowo oznaczone znakami zapytania, po poprawieniu tego przyjrzyjmy się kwantylom kolumn: 
+
+```{r}
+dane$Bare_Nuclei[dane$Bare_Nuclei=="?"] <- NA
+summary(dane)
+ggplot(dane) +
+  geom_bar(aes(x=Class, fill=Class))
+# benign - łagodny, niezłośliwy
+# malignant - złośliwy
+```
+
+Poszukajmy zależności między między kolumną *Bare_Nuclei* a zmienną celu: 
+
+```{r warning=FALSE}
+ggplot(dane) +
+  geom_histogram(aes(x=Bare_Nuclei, fill=Class), stat="count", position = "dodge2")
+```
+
+Okazuje się, że przy wartości tej kolumny bliskiej 1, rak często jest niezłośliwy, natomiast dla coraz bliższych wartości 10, większość przypadków to raki złośliwe. Brakujące dane w tej kolumnie mogą zatem okazać się ważne dla algorytmów klasyfikacji.   
+
+## 2. Model 
+
+Używany jest model *Recursive partitioning* czyli pojedyncze drzewo klasyfikacji. 
+
+```{r}
+
+learner = mlr_learners$get("classif.rpart")
+
+learner$param_set$values = mlr3misc::insert_named(
+  learner$param_set$values,
+  list(cp = 0.02, minsplit = 2, maxdepth = 15)
+)
+
+check_accuracy <- function(data_set){
+  task_breast = TaskClassif$new(id = "breast", backend = data_set, target = "Class")
+  train_set = sample(task_breast$nrow, 0.75 * task_breast$nrow)
+  test_set = setdiff(seq_len(task_breast$nrow), train_set)
+  learner$train(task_breast, row_ids = train_set)
+  
+  prediction = learner$predict(task_breast, row_ids = test_set)
+  c(sum(prediction$truth==prediction$response),length(prediction$truth))
+}
+
+check_accuracy(dane)  # cały zbiór
+
+```
+
+## 3. Algorytm po pozbyciu się braków danych
+
+### 3.1 Usunięcie kolumny z brakującymi danymi 
+
+```{r}
+check_accuracy(dane[,-6])    # zbiór bez kolumny
+```
+
+### 3.2 Usunięcie wierszy z brakującymi danymi
+
+```{r}
+missing_rows <- which(is.na(dane$Bare_Nuclei))
+check_accuracy(dane[-missing_rows,]) # zbiór bez wierszy z brakującą wartością
+```
+
+### 3.3 Zastąpienie braków danych medianą 
+
+```{r}
+median(as.numeric(dane$Bare_Nuclei), na.rm = TRUE)
+dane_median <- dane
+dane_median$Bare_Nuclei[is.na(dane_median$Bare_Nuclei)] <- median(as.numeric(dane$Bare_Nuclei), na.rm = TRUE)
+check_accuracy(dane_median)
+```
+
+### 3.4 Zastąpienie braków danych modą 
+```{r}
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+Mode(dane$Bare_Nuclei)
+dane_mode <- dane
+dane_mode$Bare_Nuclei[is.na(dane_mode$Bare_Nuclei)] <- Mode(dane$Bare_Nuclei)
+check_accuracy(dane_mode)
+```
+
+## 4. Wyniki 
+
+```{r echo=F, include=F}
+calculate_accuracy <- function(data_set){
+  task_breast = TaskClassif$new(id = "breast", backend = data_set, target = "Class")
+  train_set = sample(task_breast$nrow, 0.75 * task_breast$nrow)
+  test_set = setdiff(seq_len(task_breast$nrow), train_set)
+  learner$train(task_breast, row_ids = train_set)
+  
+  prediction = learner$predict(task_breast, row_ids = test_set)
+  return (sum(prediction$truth==prediction$response)/length(prediction$truth))  
+}
+
+surowe_dane <- rep(0,10)
+bez_kolumny <- rep(0,10)
+bez_wiersza <- rep(0,10)
+z_medianą <- rep(0,10)
+z_modą <- rep(0,10)
+for (i in 1:10){
+  surowe_dane[i] <- calculate_accuracy(dane)
+  bez_kolumny[i] <- calculate_accuracy(dane[,-6])
+  bez_wiersza[i] <- calculate_accuracy(dane[-missing_rows,])
+  z_medianą[i] <- calculate_accuracy(dane_median)
+  z_modą[i] <- calculate_accuracy(dane_mode)
+}
+
+df <- rbind(surowe_dane,bez_kolumny,bez_wiersza,z_medianą,z_modą)
+df <- cbind(df,c(mean(surowe_dane),mean(bez_kolumny),mean(bez_wiersza),mean(z_medianą),mean(z_modą)))
+colnames(df) <- c("1","2","3","4","5","6","7","8","9","10","średnia")
+```
+
+```{r echo=F}
+library(knitr)
+df <- round(df,3)
+kable(df)
+```
+
+## 5. Wnioski 
+
+Pozbycie się całej kolumny lub wiersza obniża skuteczność algorytmu - nic zaskakujacego, biorąc pod uwagę utratę sporej części danych. Podmienienie brakujących danych zadziałało najlepiej jeśli do podmiany używaliśmy mediany. Imputacja przy użyciu mody pogorszyła jakość działania algorytmu.
+
+
