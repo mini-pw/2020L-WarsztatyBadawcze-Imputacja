@@ -65,6 +65,16 @@ Należy wybrać jeden zbiór danych z [OpenML100](https://www.openml.org/search?
 
 Na podstawie otrzymanych wyników trzeba przygotować krótki raport, który będzie zawierał opis metodologii i podsumowanie wyników. Na zajęciach każdy powinien zaprezentować 5 min podsumowanie.
 
+**Baza zbiorów danych**
+
+W folderze [datasets](/datasets/) stworzymy bazę zbiorów danych dotyczących klasyfikacji binarnej. 
+Dla każdego zbioru danych należy stworzyć podfolder o nazwie *openml_dataset_id*. W podfolderze powinien znajdować się:
+- `code.R` - skrypt, w których wykonywane jest czyszczenie danych [wzór](/skrypty/code_preprocessing.R). W tym skrypcie nie należy wykonywać imputacji brakujących danych (zmiana typów danych, usunięcie kolumn, zakodowanie pewnych znaków jako `NA`).
+
+    Ważne, aby w skrypcie ostateczny zbiór danych zapisany był w zmiennej `dataset` a nazwa kolumn ze zmienną objaśnianą `target_column`.
+
+- `dataset.json` - plik json z najważniejszymi charakterystykami **wyczyszczonego zbioru danych**. Kod do jego wygenerowania znajduje się [tutaj](/skrypty/create_summary_json.R)
+
 ### Praca domowa 2
 
 
