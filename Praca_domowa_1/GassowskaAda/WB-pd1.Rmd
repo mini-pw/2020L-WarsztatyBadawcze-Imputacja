@@ -27,8 +27,10 @@ Będziemy próbowali przewidzień czy dany klient dostanie kretyd, czy nie. Po z
 data = read.csv("C:/Users/Ada/Desktop/dataset_29_credit-a.csv")
 data[data=="?"] <- NaN #zamieniam znaki zapytania na NaN
 data$A2 <- as.numeric(as.character(data$A2))
+data$A9 <- as.numeric(as.character(data$A8))
 
 head(data)
+colnames(data) <- c("Sex", "Age", "Debt", "Married", "BankCustomer", "EducationLevel", "Ethicity", "Years employed", "PriorDefault", "Employed", "CreditScore", "Driverslicense", "Citizen", "Zipcode", "Income", "class")
 ```
 
 
@@ -82,7 +84,7 @@ gg_miss_case(data) +ggtitle("Rozkład wierszy z brakami danych")
 ```
 ```{r, echo=FALSE}
 library(mice)
-md.pattern(data)
+md.pattern(data, rotate.names = TRUE)
 
 ```
 
