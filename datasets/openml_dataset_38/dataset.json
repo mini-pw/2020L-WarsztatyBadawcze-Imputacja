@@ -1,0 +1,18 @@
+{
+  "id": 38,
+  "added_by": "okcze",
+  "data_name": "sick",
+  "source": "openml",
+  "target": "Class",
+  "number_of_instances": 3770,
+  "number_of_features": 29,
+  "number_of_numeric_features": 6,
+  "number_of_categorical_features": 23,
+  "number_of_missings": 2291,
+  "number_of_instances_with_missings": 1128,
+  "number_of_features_with_missings": 6,
+  "number_of_numeric_features_with_missings": 5,
+  "numeric_features_with_missings": ["TSH", "T3", "TT4", "T4U", "FTI"],
+  "number_of_categorical_features_with_missings": 1,
+  "categorical_features_with_missings": "sex"
+}
