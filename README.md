@@ -47,7 +47,7 @@ Należy przygotować prezentację o wybranej pakiecie do imputacji danych. Preze
 - [softImpute](https://cran.r-project.org/web/packages/softImpute/index.html)
 - [missMDA](https://cran.r-project.org/web/packages/missMDA/index.html)
 - [mice](https://cran.r-project.org/web/packages/mice/index.html)
-- [missForest](https://cran.r-project.org/web/packages/missForest/index.html)
+- [missForest](https://cran.r-project.org/web/packages/missForest/index.html) - Rólkiewicz/Przybyłek/Wiśniewski/Pingielski
 - [FHDI](https://cran.r-project.org/web/packages/FHDI/index.html)
 
 Inne pakiety R dotyczace technik imputacji można znaleźć [tutaj](https://cran.r-project.org/web/views/MissingData.html)
