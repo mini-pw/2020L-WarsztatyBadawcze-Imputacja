@@ -1,0 +1,265 @@
+---
+title: "Imputacja - Praca domowa 1"
+author: "Patryk Wrona"
+date: "17 marca 2020"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+
+```{r}
+#pakiety uzywane
+library(visdat)
+library(caret)
+library(dplyr)
+library(pROC)
+```
+
+# Ładowanie danych + opis
+## Ladowanie danych
+```{r}
+grzybki <- read.csv("https://www.openml.org/data/get_csv/24/dataset_24_mushroom.arff")
+
+```
+## Opis etykietek w zbiorze
+1. cap-shape: bell=b,conical=c,convex=x,flat=f, knobbed=k,sunken=s 
+2. cap-surface: fibrous=f,grooves=g,scaly=y,smooth=s 
+3. cap-color: brown=n,buff=b,cinnamon=c,gray=g,green=r, pink=p,purple=u,red=e,white=w,yellow=y 
+4. bruises?: bruises=t,no=f 
+5. odor: almond=a,anise=l,creosote=c,fishy=y,foul=f, musty=m,none=n,pungent=p,spicy=s 
+6. gill-attachment: attached=a,descending=d,free=f,notched=n 
+7. gill-spacing: close=c,crowded=w,distant=d 
+8. gill-size: broad=b,narrow=n 
+9. gill-color: black=k,brown=n,buff=b,chocolate=h,gray=g, green=r,orange=o,pink=p,purple=u,red=e, white=w,yellow=y 
+10. stalk-shape: enlarging=e,tapering=t 
+11. stalk-root: bulbous=b,club=c,cup=u,equal=e, rhizomorphs=z,rooted=r,missing=? 
+12. stalk-surface-above-ring: fibrous=f,scaly=y,silky=k,smooth=s 
+13. stalk-surface-below-ring: fibrous=f,scaly=y,silky=k,smooth=s 
+14. stalk-color-above-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y 
+15. stalk-color-below-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y 
+16. veil-type: partial=p,universal=u 
+17. veil-color: brown=n,orange=o,white=w,yellow=y 
+18. ring-number: none=n,one=o,two=t 
+19. ring-type: cobwebby=c,evanescent=e,flaring=f,large=l, none=n,pendant=p,sheathing=s,zone=z 
+20. spore-print-color: black=k,brown=n,buff=b,chocolate=h,green=r, orange=o,purple=u,white=w,yellow=y 
+21. population: abundant=a,clustered=c,numerous=n, scattered=s,several=v,solitary=y 
+22. habitat: grasses=g,leaves=l,meadows=m,paths=p, urban=u,waste=w,woods=d
+23. class: edible=e,poisonous=p
+
+# Wstępna analiza zbioru danych
+
+Wszystkie dane są typu jakościowego.
+```{r}
+grzybki2 <- grzybki
+grzybki2[grzybki2 == "?"] <- NA
+vis_dat(grzybki2)
+
+```
+
+
+Widzimy, że **jedyne braki danych** są w kolumnie _stalk.root_ .
+```{r}
+vis_miss(grzybki2)
+
+```
+
+
+# Zamiana levels, ponieważ był problem z 1-literowymi levels:
+```{r}
+levels(grzybki$cap.shape) <- c("bell","conical","flat","knobbed","sunken","convex")
+levels(grzybki$cap.surface) <- c("fibrous","grooves","smooth","scaly")
+levels(grzybki$cap.color) <- c("buff","cinnamon","red","gray","brown","pink","green","purple","white","yellow")
+levels(grzybki$bruises.3F) <- c("no", "bruises")
+levels(grzybki$odor) <- c("almond","creosote","foul","anise","musty","none","pungent","spicy","fishy")
+levels(grzybki$gill.attachment) <- c("attached","free")
+levels(grzybki$gill.spacing)<- c("close","crowded")
+levels(grzybki$gill.size) <- c("broad","narrow")
+levels(grzybki$gill.color) <- c("buff","red","gray","chocolate","black","brown","orange","pink","green","purple","white","yellow")
+levels(grzybki$stalk.shape) <- c("enlarging","tapering")
+levels(grzybki$stalk.root) <- c("bulbous","club","equal","rhizomorphs","?")
+levels(grzybki$stalk.surface.above.ring) <- c("fibrous","silky", "smooth", "scaly")
+levels(grzybki$stalk.surface.below.ring) <- c("fibrous","silky", "smooth", "scaly")
+levels(grzybki$stalk.color.above.ring)<- c("buff","cinnamon","red","gray","brown","orange","pink","white","yellow")
+levels(grzybki$stalk.color.below.ring) <- c("buff","cinnamon","red","gray","brown","orange","pink","white","yellow")
+levels(grzybki$veil.type) <- c("partial")
+levels(grzybki$veil.color) <- c("brown","orange","white","yellow")
+levels(grzybki$ring.number) <- c("none","one","two")
+levels(grzybki$ring.type)<- c("evanescent","flaring","large","none","pendant")
+levels(grzybki$spore.print.color)  <- c("buff","chocolate","black","brown","orange","green","purple","white","yellow")
+levels(grzybki$population) <- c("abundant","clustered","numerous","scattered","several","solitary")
+levels(grzybki$habitat) <- c("woods","grasses","leaves","meadows","paths","urban","waste")
+levels(grzybki$class) <- c("edible", "poisonous")
+
+```
+
+
+
+# Usuwanie danych
+
+```{r}
+grzybki_upgraded <- grzybki
+grzybki_upgraded[grzybki_upgraded == "?"] <- NA
+grzybki_upgraded <- na.omit(grzybki) # grzybki bez NA, usunelismy te obserwacje
+
+grzybki_characteristics <- grzybki_upgraded %>% select(-"class")
+grzybki_canIEatOrNot <- grzybki_upgraded$class
+
+```
+
+
+## Podzial grzybków na zbiory testowe i treningowe
+
+W zbiorze treningowym będzie losowych 80% obserwacji, a w testowym losowych 20%.
+```{r}
+wiersze_treningowe <- createDataPartition(grzybki_canIEatOrNot, p = 0.8, list= FALSE)
+grzybki_char_train <- grzybki_characteristics[wiersze_treningowe, ] 
+grzybki_canI_train <- as.factor(grzybki_canIEatOrNot[wiersze_treningowe] )
+grzybki_char_test <- grzybki_characteristics[-wiersze_treningowe, ] 
+grzybki_canI_test <- as.factor(grzybki_canIEatOrNot[-wiersze_treningowe])
+```
+
+
+
+## Cross Validation
+```{r}
+controler_grzybkow <- trainControl(method = "adaptive_cv",
+                                   classProbs = TRUE
+)
+```
+
+## Random forest algorithm
+Zastosuję poznany ostatnio algorytm Random Forest w celu klasyfikacji grzybków.
+```{r}
+rfModel <- train(x = grzybki_char_train,
+               y = grzybki_canI_train, 
+               method = "rf", 
+               ntree = 7,
+               tuneLength = 7,
+               metric='ROC', 
+               trControl = controler_grzybkow)
+```
+
+
+## Confusion matrix
+```{r}
+confusionMatrix(predict(rfModel, grzybki_char_test), 
+                grzybki_canI_test,
+                positive = "edible")
+```
+Accuracy równe aż 1?
+
+
+
+## Creating ROC object and plotting ROC curve
+```{r}
+ROCCurve <- roc(grzybki_canI_test, 
+                predict(rfModel, grzybki_char_test, type = "prob")[, "edible"],
+                ci = TRUE)
+# wykres ROC - zloty bo AUC = 1
+plot.roc(ROCCurve, 
+         legacy.axes = TRUE,
+         main="ROC",
+         percent=TRUE,
+         col = "#FFD700")
+```
+
+## Area Under Curve value
+
+```{r}
+auc(ROCCurve)
+```
+
+
+
+
+
+
+
+# Imputacja modą
+
+```{r}
+grzybki_mode <- grzybki
+for(i in 1:nrow(grzybki)){
+  if(grzybki$stalk.root[i] == "?"){
+    grzybki_mode$stalk.root[i] <- "bulbous"
+  }
+}
+
+
+grzybki_characteristics <- grzybki_mode %>% select(-"class")
+grzybki_canIEatOrNot <- grzybki_mode$class
+```
+
+
+
+## Podzial grzybków na zbiory testowe i treningowe
+
+W zbiorze treningowym będzie losowych 80% obserwacji, a w testowym losowych 20%.
+```{r}
+wiersze_treningowe <- createDataPartition(grzybki_canIEatOrNot, p = 0.8, list= FALSE)
+grzybki_char_train <- grzybki_characteristics[wiersze_treningowe, ] 
+grzybki_canI_train <- as.factor(grzybki_canIEatOrNot[wiersze_treningowe] )
+grzybki_char_test <- grzybki_characteristics[-wiersze_treningowe, ] 
+grzybki_canI_test <- as.factor(grzybki_canIEatOrNot[-wiersze_treningowe])
+```
+
+
+
+## Cross Validation
+```{r}
+controler_grzybkow <- trainControl(method = "adaptive_cv", 
+                                   classProbs = TRUE
+)
+```
+
+## Random forest algorithm
+Zastosuję poznany ostatnio algorytm Random Forest w celu klasyfikacji grzybków.
+```{r}
+rfModel <- train(x = grzybki_char_train,
+               y = grzybki_canI_train, 
+               method = "rf", 
+               ntree = 7,
+               tuneLength = 7,
+               metric='ROC', 
+               trControl = controler_grzybkow)
+```
+
+
+## Confusion matrix
+```{r}
+confusionMatrix(predict(rfModel, grzybki_char_test), 
+                grzybki_canI_test,
+                positive = "edible")
+```
+Accuracy równe aż 1?
+
+
+
+## Creating ROC object and plotting ROC curve
+```{r}
+ROCCurve <- roc(grzybki_canI_test, 
+                predict(rfModel, grzybki_char_test, type = "prob")[, "edible"],
+                ci = TRUE)
+# wykres ROC - zloty bo AUC = 1
+plot.roc(ROCCurve, 
+         legacy.axes = TRUE,
+         main="ROC",
+         percent=TRUE,
+         col = "#FFD700")
+```
+
+## Area Under Curve value
+
+```{r}
+auc(ROCCurve)
+```
+

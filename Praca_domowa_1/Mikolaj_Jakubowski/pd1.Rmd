@@ -1,0 +1,159 @@
+---
+title: "PD1"
+author: "Mikołaj Jakubowski"
+date: "03/17/2020"
+output: html_document
+---
+
+```{r data and libraries, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+library(OpenML)
+library(mlr3)
+library(data.table)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(DataExplorer)
+library(mlr3learners)
+library(mice)
+library(tidyr)
+
+mushroom_task_openml <- getOMLDataSet(data.name = "mushroom")
+df <- mushroom_task_openml$data
+```
+
+## Eksploracja:
+
+#### Typy danych i ewentualne braki:
+
+```{r echo=FALSE, message=TRUE, warning=TRUE, paged.print=FALSE, include=TRUE}
+vis_dat(df)
+```
+
+Wszystkie ze zmiennych są kategoryczne a braki występują jedynie w kolumnie 'stalk.root'  
+
+Bardziej opisowa analiza:
+```{r echo=FALSE, include=TRUE}
+summary(df)
+```
+
+
+#### Rozkład zmiennych kategorycznych:
+```{r echo=TRUE, message=FALSE, warning=FALSE, include=FALSE,fig.pos="H",fig.height=15,fig.width=12}
+plot_bar(df,nrow=5,ncol=5,theme_config = list(axis.text.y=element_text(size=12)))
+
+```
+-Istnieje wiele kategorii, które nie posiadają swoich przedstawicieli.  
+-Zbiór grzybow jadalnych i niejadalnych jest zbalansowany.  
+-Kolumna 'veil.type' posiada tylko jedną kategorię, dlatego można usunąć ją z rozwazań.  
+```{r echo=TRUE}
+df <- df %>%
+  select(-veil.type)
+```
+## Podział zbioru
+Aby uniknąć losowości, przy ocenie poszczególnych technik uzupełniania braków, wszystkie metody testowane będą na tym samym podziale na zbiór treningowy i testowy.
+```{r echo=TRUE}
+set.seed(123)
+n <- nrow(df)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- df[id_train, ]
+
+id_test <- setdiff(1:n, sample(1:n, 3/4 * n))
+df_test <- df[id_test, ]
+```
+
+## Metody uzupełniania braków
+#### Usunięcie kolumny z brakam
+```{r echo=TRUE}
+df_test_col <- df_test%>%select(-stalk.root)
+df_train_col <- df_test%>%select(-stalk.root)
+```
+#### Usunięcie wierszy z brakami
+```{r echo=TRUE}
+df_train_row <- df_test%>%drop_na()
+```
+#### Wypełnienie modą
+```{r echo=TRUE}
+getmode <- function(v){
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+na_rows <- is.na(df_train$stalk.root)
+mode <- getmode(df_train$stalk.root)
+df_train_mode <- df_train
+df_train_mode[na_rows, 'stalk.root'] <- mode
+```
+#### Wypełnienie losowymi wartościami(podtrzymując rozkład)
+```{r echo=TRUE}
+na_rows <- is.na(df_train$stalk.root)
+values <- df_train$stalk.root[!na_rows]
+n <- sum(na_rows)
+input_val <- sample(values, n)
+df_train_rand1 <- df_train
+df_train_rand1[na_rows, 'stalk.root'] <- input_val
+```
+#### Wypełnienie losowymi wartościami(wyrownując rozkład)
+```{r echo=TRUE}
+values <- unique(df_train$stalk.root)
+values <- na.omit(values)
+na_rows <- is.na(df_train$stalk.root)
+n <- sum(na_rows)
+input_val <- sample(values, n, replace=TRUE)
+df_train_rand2 <- df_train
+df_train_rand2[na_rows, 'stalk.root'] <- input_val
+```
+
+## Funkcje uczące i testujace(drzewo decyzyjne)
+```{r functions, echo=TRUE}
+library(rpart)
+predictions_stats <- function(df_train, df_test){
+  tree_classifier <- rpart(class~., data=df_train)
+  tree_classifier_test_prediction_class <- predict(tree_classifier, newdata = df_test%>%select(-class), type = 'class')
+  type_of_error <- ifelse(df_test$class=='p' & tree_classifier_test_prediction_class=='p', "TN",
+                        ifelse(df_test$class=='p' & tree_classifier_test_prediction_class=='e', "FP",
+                         ifelse(df_test$class=='e' & tree_classifier_test_prediction_class=='p', "FN", "TP")))
+  return(table(type_of_error))
+}
+```
+
+## Testowanie metod
+Warto tu dodać, że najbardziej zależy nam na maksymalizacji parametru specificity. Z racji tego, że oceniamy jadalność grzybów to najważniejsze, żeby potrafić poprawnie wskazać te niejadalne, dopiero w drugiej kolejności te jadalne.    
+#### Usunięcie kolumn z brakami
+```{r echo=FALSE}
+conf.val <- predictions_stats(df_train_col, df_test_col)
+specificity <- (conf.val['TN'])/(conf.val['TN']  + conf.val['FP'])
+conf.val
+print(paste0("specificity: ", unname(specificity)))
+```
+#### Usunięcie wierszy
+```{r echo=FALSE}
+conf.val <- predictions_stats(df_train_row, df_test)
+specificity <- (conf.val['TN'])/(conf.val['TN']  + conf.val['FP'])
+conf.val
+print(paste0("specificity: ", unname(specificity)))
+```
+#### Wypełnienie modą
+```{r echo=FALSE}
+conf.val <- predictions_stats(df_train_mode, df_test)
+specificity <- (conf.val['TN'])/(conf.val['TN']  + conf.val['FP'])
+conf.val
+print(paste0("specificity: ", unname(specificity)))
+```
+#### Wypełnienie losowo zgodnie z rozkładem
+```{r echo=FALSE}
+conf.val <- predictions_stats(df_train_rand1, df_test)
+specificity <- (conf.val['TN'])/(conf.val['TN']  + conf.val['FP'])
+conf.val
+print(paste0("specificity: ", unname(specificity)))
+```
+#### Wypelnienie losowo wyrównując rozkład
+```{r echo=FALSE}
+conf.val <- predictions_stats(df_train_rand2, df_test)
+specificity <- (conf.val['TN'])/(conf.val['TN']  + conf.val['FP'])
+conf.val
+print(paste0("specificity: ", unname(specificity)))
+```
+## Wnioski
+Zbiór okazał się nienajlepszym do testów sposobów imputacji. Kolumna, w której były braki okazała się w ogóle nie mieć wpływu na przewidywany wynik.  
+Widać jednak, że usuwanie wierszy, w których występują braki czasem nie jest najlepszym pomysłem bo można utracić wiele wartościowych rekordów.
