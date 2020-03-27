@@ -1,0 +1,530 @@
+---
+title: "Praca domowa 1"
+author: "Mateusz Grzyb"
+output: html_document
+---
+
+## Zbiór danych
+
+Nazwa: eucalyptus
+
+Źródło: https://www.openml.org/d/188
+
+## Opis zbioru
+
+The objective was to determine which seedlots in a species are best for soil conservation in seasonally dry hill country. Determination is found by measurement of height, diameter by height, survival, and other contributing factors.
+
+Abbrev - site abbreviation - enumerated
+
+Rep - site rep - integer
+
+Locality - site locality in the North Island - enumerated
+
+Map_Ref - map location in the North Island - enumerated
+
+Latitude - latitude approximation - enumerated
+
+Altitude - altitude approximation - integer
+
+Rainfall - rainfall (mm pa) - integer
+
+Frosts - frosts (deg. c) - integer
+
+Year - year of planting - integer
+
+Sp - species code - enumerated
+
+PMCno - seedlot number - integer
+
+DBH - best diameter base height (cm) - real
+
+Ht - height (m) - real
+
+Surv - survival - integer
+
+Vig - vigour - real
+
+Ins_res - insect resistance - real
+
+Stem_Fm - stem form - real
+
+Crown_Fm - crown form - real
+
+Brnch_Fm - branch form - real
+
+Utility - utility rating - enumerated
+
+## Wczytanie pakietów
+
+```{r setup, message=F}
+library(knitr)
+library(kableExtra)
+
+library(dplyr)
+library(purrr)
+library(reshape2)
+
+library(ggplot2)
+library(cowplot)
+library(visdat)
+library(naniar)
+
+library(mlr3)
+library(mlr3learners)
+library(mlr3pipelines)
+library(mlr3measures)
+library(mlr3viz)
+```
+
+## Wczytanie danych
+
+```{r dat, cache=T}
+# braki danych oznaczono za pomoca '?'
+data <- read.csv('./dataset_194_eucalyptus.csv', stringsAsFactors=FALSE, na.strings='?')
+
+kable(head(data)) %>%
+  kable_styling(bootstrap_options='striped') %>%
+  scroll_box(width="100%", height="200px")
+```
+
+## Czyszczenie danych
+
+```{r clr, cache=T, dependson='dat'}
+data <- data %>%
+  # w kolumnie Latitude zmienie minuty na setne stopnia, dzieki czemu uzyskam wlasciwa zmienna numeryczna
+  mutate(Latitude=-as.numeric(substr(Latitude, 1, 2))-as.numeric(substr(Latitude, 5, 6))/60) %>%
+  # szesc obserwacji zmiennej Latitude jest nierealnych (klimat arktyczny), wiec zmienie je na NA
+  mutate(Latitude=ifelse(Latitude<(-60), NA, Latitude)) %>%
+  # jedna obserwacja zmiennej DBH jest nierealna (80 razy wieksza od drugiej najwiekszej), wiec zmienie ja na NA
+  mutate(DBH=ifelse(DBH>100, NA, DBH))
+```
+
+## Typy zmiennych i braki danych
+
+```{r vis, cache=T, dependson='clr', fig.align='center'}
+vis_dat(data)
+```
+
+```{r nas, cache=T, dependson='clr'}
+kable(filter(miss_var_summary(data), n_miss>0)) %>%
+  kable_styling(bootstrap_options='striped')
+```
+
+#### Komentarz
+
+W danych występują atrybuty typu 'character', 'integer' i 'numeric'. Są to zarówno zmienne kategoryczne jak i numeryczne. Występują braki danych, najwięcej w kolumnach 'Surv', 'Vig', 'Ins_res', 'Stem_Fm', 'Crown_Fm' i "Brnch_Fm'.
+
+## Analiza zmiennych
+
+### Rozkłady zmiennych kategorycznych
+
+```{r cat, cache=T, dependson='clr', fig.align='center', fig.height=28, fig.width=10, warning=F}
+variables <- c('Abbrev', 'Rep', 'Locality', 'Map_Ref', 'Sp', 'PMCno', 'Utility')
+variables <- set_names(variables)
+angles <- c(0, 0, 45, 45, 0, 90, 0)
+
+pareto_fun <- function(data, variable, label_angle) {
+  data[[variable]] <- factor(data[[variable]], levels=names(sort(table(data[[variable]]), decreasing=T)))
+  ggplot(data, aes_string(x=variable)) +
+    geom_bar(aes(y=(..count..)/sum(..count..)), fill='steelblue') +
+    stat_count(aes(y=cumsum(..count..)/sum(..count..)), geom="step", group=1) +
+    theme(axis.text.x=element_text(angle=label_angle, hjust=0.5, vjust=0.5)) +
+    labs(title=paste('Rozkład zmiennej', variable)) +
+    ylab(label='') +
+    xlab(label=variable)
+}
+
+plots <- map2(variables, angles, ~pareto_fun(data, .x, .y))
+plot_grid(plotlist=plots, ncol=1, nrow=length(variables))
+```
+
+#### Komentarz
+
+* niemal 50% drzew pochodzi z 5 (na 16) stanowisk,
+* ponad 50% drzech pochodzi z rejonu Wairarapa,  
+  
+  ![](wairarapa.png){width=200px float=left}  
+  
+* ponad 50% drzew jest jednego z 6 (na 27) gatunków,
+* nasiona drzew pochodziły z 85 różnych partii,
+* najwięcej jest drzew o użyteczności "good", ale drugie najpowszechniejsze są o użyteczności "none", a ostatnie "best"
+
+### Rozkłady zmiennych numerycznych
+
+```{r num, cache=T, dependson='clr', fig.align='center', fig.height=52, fig.width=10, warning=F}
+variables <- setdiff(colnames(data), variables)
+variables <- set_names(variables)
+
+dist_fun <- function(data, variable) {
+  p1<- ggplot(data, aes_string(x=variable)) + 
+    geom_density(fill='steelblue', alpha=.5) +
+    geom_rug(aes(y=0), position=position_jitter(height=0, width=0.1), colour='steelblue', alpha=.25, sides='b') +
+    labs(title=paste('Rozkład zmiennej', variable)) +
+    ylab(label='') +
+    xlab(label=variable)
+  p2 <- ggplot(data, aes_string(y=variable)) +
+    geom_boxplot(fill='steelblue', alpha=.5) +
+    stat_summary(fun.y=mean, geom ="errorbar", aes(x=0, ymax=..y..,ymin=..y..), width=.75, linetype = "dashed") +
+    labs(title=(' ')) +
+    xlab(label=' ') +
+    ylab(label=variable) +
+    theme(
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+  plot_grid(p1, p2, ncol=2, nrow=1, rel_widths=c(0.75, 0.25))
+}
+
+plots <- map(variables, ~dist_fun(data, .x))
+plot_grid(plotlist=plots, ncol=1, nrow=length(variables))
+```
+
+#### Komentarz
+
+* Rozkład szerokości geograficznej jest dwumodalny, minimalna wartość to -41.27°, a maksymalna -39°,
+* 50% drzew zajduje się na wysokości 150-180 m n.p.m., minimalna wartość to 70 m n.p.m., a maksymalna 300 m n.p.m,
+* średnie opady wynoszą 1095 mm rocznie, minimalna wartość to 850 mm rocznie, a maksymalna 1750 mm rocznie,
+* zmienna Frosts przyjmuje tylko dwie wartości - -2 °C i -3 °C, przy czym wartość -3 °C występuje częściej,
+* badane drzewa sadzone były w latach 1980-1986, najwięcej z nich zasadzono w 1981 i 1983 roku,
+* zmienna DBH ma rozkład jednomodalny o dodatniej asymetrii, średnia jej wartość wynosi 15.71 cm,
+* wysokość drzew ma rozkład jednomodalny o dodatniej asymetrii, średnia jej wartość to 9.3 m, a najwyższe drzewo miało wysokość 21.79 m,
+* średnia przeżywalność wynosi 60 (wartości są z przedziału 1.5-100), a najczęstszą wartością wigoru jest 3 (wartości są z przedziału 0.5-5),
+* rozkłady zmiennych Ins_res, Stem_Fm, Crown_Fm i Brnch_Fm są widocznie podobne (w szczególności Stem_Fm i Brnch_Fm)
+
+## Korelacje zmiennych
+
+```{r cor, cache=T, dependson='clr', fig.align='center', dpi=200, warning=F}
+cormat <- round(cor(data[variables], use="na.or.complete"), 2)
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <- cormat[hc$order, hc$order]
+cormat[lower.tri(cormat)] <- NA
+melted_cormat <- melt(cormat, na.rm=T)
+
+ggplot(data=melted_cormat, aes(Var2, Var1, fill=value)) +
+  geom_tile(color="white") +
+  scale_fill_gradient2(low="steelblue", high="firebrick", mid="white", midpoint=0,
+                       limit=c(-1,1), space="Lab", name="Korelacja\nPearsona") +
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 2.5) +
+  theme_minimal() + 
+  theme(
+    axis.text.x=element_text(angle=90),
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.45, 0.75),
+    legend.direction = "horizontal") +
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1, title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+#### Komentarz
+
+Wysoce skorelowane są:
+
+* szerokość geograficzna i wysokość nad poziomem morza / przymrozki,
+* odporność na insekty i wigor,
+* wigor i DBH / wysokość drzewa,
+* DBH i wysokość drzewa,
+* roczne opady i rok zasadzenia,
+* Brnch_Fm i Stem_Fm / Crown_Fm,
+* Stem_Fm i Crown_Fm
+
+## Zależności zmiennych kategorycznych
+
+Wartości niektórych zmiennych kategorycznych jednozacznie wyznaczają wartości innych w danym wierszu.
+
+Funkcja sprawdzająca:
+
+```{r reb, cache=T}
+test <- function(data, variable1, variable2, na.rm=F) {
+  values <- unique(data[[variable1]])
+  values <- values[!is.na(values)]
+  responses <- rep(F, length(values))
+  if(na.rm) {
+    responses <- as.logical(map(values,
+                                ~length(na.omit(unique(data[data[variable1]==.x, variable2]))))%in%c(0, 1))
+  }
+  else {
+    responses <- as.logical(map(values,
+                                ~(length(unique(data[data[variable1]==.x, variable2])))==1 &
+                                  length(na.omit(unique(data[data[variable1]==.x, variable2])))==1))
+  }
+  all(responses)
+}
+```
+
+Krótki test poprawawnego działania funkcji:
+
+```{r reb_chck, cache=T, dependson=c('reb', 'clr')}
+# powinno wyjsc TRUE  
+cat(paste('Czy zmienna Abbrev jednozacznie wyznacza zmienna Abbrev:', test(data, 'Abbrev', 'Abbrev')))
+# powinno wyjsc FALSE
+cat(paste('Czy zmienna Sp jednozacznie wyznacza zmienna Ht:', test(data, 'Sp', 'Ht')))
+```
+
+Przykładowe tego typu związki:
+
+```{r reb_anls, cache=T, dependson=c('reb', 'clr')}
+cat(paste0('Czy zmienna Abbrev jednozacznie wyznacza zmienna Locality: ',
+           test(data, 'Abbrev', 'Locality'), '\n', 
+           'Czy zmienna Abbrev jednozacznie wyznacza zmienna Map_Ref: ',
+           test(data, 'Abbrev', 'Map_Ref'), '\n',
+           'Czy zmienna Abbrev jednozacznie wyznacza zmienna Latitude: ',
+           test(data, 'Abbrev', 'Latitude', T), '\n',
+           'Czy zmienna Latitude jednozacznie wyznacza zmienna Rainfall: ',
+           test(data, 'Latitude', 'Rainfall', T), '\n',
+           'Czy zmienna Latitude jednozacznie wyznacza zmienna Altitude: ',
+           test(data, 'Latitude', 'Altitude')))
+
+```
+#### Komentarz
+
+Wartość zmiennej Abbrev jednoznacznie wyznacza wartości zmiennych Locality, Map_Ref i Latitude (o ile ta ostatnia jest znana). Podobnie szerokość geograficzna jednoznacznie wyznacza roczne opady deszczu (o ile są znane), ale już nie wysokość nad poziomem morza.
+
+## Przygotowanie danych do ML
+
+Po pierwsze, w obecnej formie zbiór danych stanowi zadanie klasyfikacji wieloklasowej. Zmienna docelowa - Utility, przyjmuje 5 wartości - "none", "low", "average", "good" i "best". W związku z tym, że na zajęciach nie poruszaliśmy jeszcze tego tematu, powyższy problem zamienię na klasyfikację binarną, w sposób następujący - drzewa o użyteczności "none", "low" i "average" umieszczę w grupie 0, a drzewa o użyteczności "good" i "best" w grupie 1. Tym sposobem, zadaniem algorytmu będzie rozpoznawanie drzew o ponadprzeciętnej użyteczności.
+
+```{r bin, cache=T, dependson='clr'}
+data <- mutate(data, Utility=as.factor(ifelse(Utility %in% c('good', 'best'), 1, 0)))
+
+kable(head(select(data, Utility))) %>%
+  kable_styling(bootstrap_options='striped') %>%
+  scroll_box(width="100%", height="200px")
+```
+
+Po drugie, z logicznego punktu widzenia atrybuty takie jak Abbrev, Rep, Locality, czy Map_Ref nie powinny mieć wpływu na użyteczność poszczególnych drzew (np. Abbrev), bądź też są z nią tylko pośrednio związane, a inna zmienna lepiej opisuje ten związek (np. Locality i Latitude). Pozbędę się tych zmiennych.
+
+```{r drp, cache=T, dependson='bin'}
+data <- select(data, -Abbrev, -Rep, -Locality, -Map_Ref)
+
+kable(head(data)) %>%
+  kable_styling(bootstrap_options='striped') %>%
+  scroll_box(width="100%", height="200px")
+```
+
+Po trzecie, zmienię typ atrybutu Sp z "character" na "factor" (nieuporządkowany).
+
+```{r fctr, cache=T, dependson='drp'}
+data <- mutate(data, Sp=factor(Sp, levels=unique(Sp), ordered=F))
+```
+
+Ostatecznie, podzielę dane na zbiór treningowy i testowy.
+
+```{r dvd, cache=T, dependson='fctr'}
+set.seed(0)
+train_set <- sample(nrow(data), 0.8*nrow(data))
+test_set <- setdiff(seq_len(nrow(data)), train_set)
+```
+
+## Imputacja i ML
+
+Użyję algorytmu "Penalized Logistic Regression" z pakietu "glmnet".
+
+Posłużę się procesem, który był omawiany na ostatnich zajęciach:
+
+1. Stosujemy imputację na całym zbiorze treningowym,
+
+2. dzielimy uzupełniony zbiór treningowy na podzbiory i przeprowadzamy kroswalidację,
+
+3. stosujemy imputację na zbiorze testowym, 
+
+4. oceniamy algorytm na zbiorze testowym.
+
+### Usunięcie wierszy z brakami danych
+
+```{r ML1, fig.align='center'}
+# usuniecie wierszy z brakami danych
+data_no_na <- na.omit(data)
+train_set_no_na <- intersect(seq_len(nrow(data))[complete.cases(data)], train_set)
+test_set_no_na <- intersect(seq_len(nrow(data))[complete.cases(data)], test_set)
+
+# przygotowanie obiektow
+resampling <- rsmp("cv", folds = 5)
+encoder <- po('encode', method='one-hot', affect_columns=selector_type('factor'))
+learner <- lrn('classif.glmnet', predict_type = 'prob')
+glearner <- GraphLearner$new(encoder %>>% learner)
+
+# kroswalidacja na zbiorze treningowym
+task_1 <- TaskClassif$new(id='eucalyptus', backend=data[train_set_no_na, ], target='Utility', positive='1')
+rr <- resample(task_1, glearner, resampling, store_models = TRUE)
+
+rr$score(msr('classif.acc'))[, c('iteration', 'classif.acc')]
+rr$score(msr('classif.ce'))[, c('iteration', 'classif.ce')]
+rr$score(msr('classif.precision'))[, c('iteration', 'classif.precision')]
+rr$score(msr('classif.recall'))[, c('iteration', 'classif.recall')]
+autoplot(rr, type='roc')
+
+# uczenie na calym zbiorze treningowym
+task_2 <- TaskClassif$new(id='eucalyptus', backend=data, target='Utility', positive='1')
+glearner$train(task_2, row_ids=train_set_no_na)
+
+# ocena na zbiorze testowym
+prediction <- glearner$predict(task_2, row_ids=test_set_no_na)
+
+prediction$score(msr('classif.acc'))
+prediction$score(msr('classif.ce'))
+prediction$score(msr('classif.precision'))
+prediction$score(msr('classif.recall'))
+autoplot(prediction, type='roc')
+prediction$score(msr('classif.auc'))
+```
+
+### Usunięcie kolumn z brakami danych
+
+```{r ML2, fig.align='center'}
+# usuniecie kolumn z brakami danych
+variables <- unlist(lapply(data, function(x) any(is.na(x))))
+variables <- names(variables)[!variables]
+new_data <- data[, variables]
+
+# przygotowanie obiektow
+resampling <- rsmp("cv", folds = 5)
+encoder <- po('encode', method='one-hot', affect_columns=selector_type('factor'))
+learner <- lrn('classif.glmnet', predict_type = 'prob')
+glearner <- GraphLearner$new(encoder %>>% learner)
+
+# kroswalidacja na zbiorze treningowym
+task_1 <- TaskClassif$new(id='eucalyptus', backend=new_data[train_set, ], target='Utility', positive='1')
+rr <- resample(task_1, glearner, resampling, store_models = TRUE)
+
+rr$score(msr('classif.acc'))[, c('iteration', 'classif.acc')]
+rr$score(msr('classif.ce'))[, c('iteration', 'classif.ce')]
+rr$score(msr('classif.precision'))[, c('iteration', 'classif.precision')]
+rr$score(msr('classif.recall'))[, c('iteration', 'classif.recall')]
+autoplot(rr, type='roc')
+
+# uczenie na calym zbiorze treningowym
+task_2 <- TaskClassif$new(id='eucalyptus', backend=new_data, target='Utility', positive='1')
+glearner$train(task_2, row_ids=train_set_no_na)
+
+# ocena na zbiorze testowym
+prediction <- glearner$predict(task_2, row_ids=test_set)
+
+prediction$score(msr('classif.acc'))
+prediction$score(msr('classif.ce'))
+prediction$score(msr('classif.precision'))
+prediction$score(msr('classif.recall'))
+autoplot(prediction, type='roc')
+prediction$score(msr('classif.auc'))
+```
+
+### Zastąpienie braków średnią
+
+```{r ML3, fig.align='center'}
+# zastapienie brakow zmiennej PMCno najczesciej wystepujaca wartoscia, wyznaczona na zbiorze treningowym
+new_data <- mutate(data, PMCno=ifelse(is.na(PMCno), sort(table(data$PMCno), decreasing=TRUE)[1], PMCno))
+
+# zastapienie brakow pozostlaych zmiennych srednia, wyznaczona na zbiorze treningowym
+variables <- unlist(lapply(new_data, function(x) any(is.na(x))))
+variables <- names(variables)[variables]
+for(variable in variables) {
+  new_data[[variable]] <- ifelse(is.na(new_data[[variable]]), mean(new_data[train_set, variable], na.rm=T), new_data[[variable]])
+}
+
+# przygotowanie obiektow
+resampling <- rsmp("cv", folds = 5)
+encoder <- po('encode', method='one-hot', affect_columns=selector_type('factor'))
+learner <- lrn('classif.glmnet', predict_type = 'prob')
+glearner <- GraphLearner$new(encoder %>>% learner)
+
+# kroswalidacja na zbiorze treningowym
+task_1 <- TaskClassif$new(id='eucalyptus', backend=new_data[train_set, ], target='Utility', positive='1')
+rr <- resample(task_1, glearner, resampling, store_models = TRUE)
+
+rr$score(msr('classif.acc'))[, c('iteration', 'classif.acc')]
+rr$score(msr('classif.ce'))[, c('iteration', 'classif.ce')]
+rr$score(msr('classif.precision'))[, c('iteration', 'classif.precision')]
+rr$score(msr('classif.recall'))[, c('iteration', 'classif.recall')]
+autoplot(rr, type='roc')
+
+# uczenie na calym zbiorze treningowym
+task_2 <- TaskClassif$new(id='eucalyptus', backend=new_data, target='Utility', positive='1')
+glearner$train(task_2, row_ids=train_set)
+
+# ocena na zbiorze testowym
+prediction <- glearner$predict(task_2, row_ids=test_set)
+
+prediction$score(msr('classif.acc'))
+prediction$score(msr('classif.ce'))
+prediction$score(msr('classif.precision'))
+prediction$score(msr('classif.recall'))
+autoplot(prediction, type='roc')
+prediction$score(msr('classif.auc'))
+```
+
+### Zastąpienie braków medianą
+
+```{r ML4, fig.align='center'}
+# zastapienie brakow zmiennej PMCno najczesciej wystepujaca wartoscia, wyznaczona na zbiorze treningowym
+new_data <- mutate(data, PMCno=ifelse(is.na(PMCno), sort(table(data$PMCno), decreasing=TRUE)[1], PMCno))
+
+# zastapienie brakow pozostlaych zmiennych mediaba, wyznaczona na zbiorze treningowym
+variables <- unlist(lapply(new_data, function(x) any(is.na(x))))
+variables <- names(variables)[variables]
+for(variable in variables) {
+  new_data[[variable]] <- ifelse(is.na(new_data[[variable]]), median(new_data[train_set, variable], na.rm=T), new_data[[variable]])
+}
+
+# przygotowanie obiektow
+resampling <- rsmp("cv", folds = 5)
+encoder <- po('encode', method='one-hot', affect_columns=selector_type('factor'))
+learner <- lrn('classif.glmnet', predict_type = 'prob')
+glearner <- GraphLearner$new(encoder %>>% learner)
+
+# kroswalidacja na zbiorze treningowym
+task_1 <- TaskClassif$new(id='eucalyptus', backend=new_data[train_set, ], target='Utility', positive='1')
+rr <- resample(task_1, glearner, resampling, store_models = TRUE)
+
+rr$score(msr('classif.acc'))[, c('iteration', 'classif.acc')]
+rr$score(msr('classif.ce'))[, c('iteration', 'classif.ce')]
+rr$score(msr('classif.precision'))[, c('iteration', 'classif.precision')]
+rr$score(msr('classif.recall'))[, c('iteration', 'classif.recall')]
+autoplot(rr, type='roc')
+
+# uczenie na calym zbiorze treningowym
+task_2 <- TaskClassif$new(id='eucalyptus', backend=new_data, target='Utility', positive='1')
+glearner$train(task_2, row_ids=train_set)
+
+# ocena na zbiorze testowym
+prediction <- glearner$predict(task_2, row_ids=test_set)
+
+prediction$score(msr('classif.acc'))
+prediction$score(msr('classif.ce'))
+prediction$score(msr('classif.precision'))
+prediction$score(msr('classif.recall'))
+autoplot(prediction, type='roc')
+prediction$score(msr('classif.auc'))
+```
+
+#### Komentarz
+
+**Kroswalidacja na zbiorze treningowym:**
+
+W przypadku kroswaliwdacji na zbiorze treningowym różnice w wynikach pomiędzy iteracjami nie były podejrzanie duże dla żadnej z metod imputacji. Największe ze wspomnianych różnic zaobserwowano przy usuwaniu kolumn.
+
+**Wyniki na zbiorze testowym:**
+
+Oznaczmy metody imputacji następująco:
+
+* RR - usunięcie wierszy z brakami danych
+
+* CR - usunięcie kolumn z brakami danych
+
+* MEDIAN - zastąpeienie braków danych medianą
+
+* MEAN - zastąpeienie braków danych średnią
+
+Wyniki:
+
+* Pod względem AUC: CR (0.751428) < RR (0.9680653) < MEDIAN (0.9738345) < MEAN (0.9751244)
+
+* Pod względem ACC: CR (0.6418919) < MEDIAN (0.8986486) = MEAN (0.8986486) < RR (0.9007634)
+
+* Pod względem CE: CR (0.3581081) < MEDIAN (0.1013514) = MEAN (0.1013514) < RR (0.09923664)
+
+* Pod względem PRECISION: CR (0.5833333) < RR (0.90625) = MEDIAN (0.90625) = MEAN (0.90625)
+
+* Pod względem RECALL: CR (0.7313433) < MEAN (0.8656716) = MEDIAN (0.8656716) < RR (0.8923077)

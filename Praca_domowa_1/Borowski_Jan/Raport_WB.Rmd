@@ -1,0 +1,413 @@
+---
+title: "Projekt 1"
+author: "Jan Borowksi"
+date: "15 03 2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE)
+dresses_sales <- read.csv("dresses-sales.csv")
+
+# Na początek nadamy właściwe nazwy kolumnom 
+
+colnames(dresses_sales)[1:12] <- c('Style', 'Price', 'Rating', 'Size', 'Season', 'NeckLine',
+                                   'SleeveLength', 'waiseline', 'Material', 'FabricType',
+                                   'Decoration', 'Pattern')
+for (i in (1:length(colnames(dresses_sales)))) {
+  d <- ifelse(dresses_sales[,i]=="?",TRUE,FALSE)
+  dresses_sales[,i][d] <- NA 
+}
+library(OpenML)
+library(mlr3)
+library(data.table)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(DataExplorer)
+library(mice)
+library(tidyr)
+```
+
+## Eksploracja Danych
+Zaczniemy od eksploracji danych ze zbioru dresses-sales z OpenML. W pierwotnym zbiorze występują braki danych przedstawione jako "?" zostały
+one już zamienione na **NA**. \ 
+Najpierw przyjrzyjmu się typom zminnych w zbiorze: 
+
+```{r echo=FALSE, message=TRUE, warning=TRUE, paged.print=FALSE,include=TRUE}
+vis_dat(dresses_sales)
+```
+
+\newpage
+Widzimy ,że zdecydowana większośc zmiennych to zmienne kategoryczne. Przyjrzyjmy się im bliżej:
+```{r echo=FALSE,include=TRUE}
+summary(dresses_sales[,c('Style', 'Price', 'Size', 'Season', 'NeckLine',
+                                   'SleeveLength', 'waiseline', 'Material', 'FabricType',
+                                   'Decoration', 'Pattern')])
+
+zmienne <- c('Style', 'Price', 'Size', 'Season', 'NeckLine',
+                                   'SleeveLength', 'waiseline', 'Material', 'FabricType',
+                                   'Decoration', 'Pattern')
+for (i in zmienne){
+  dresses_sales[,i] <- tolower(dresses_sales[,i])
+}
+
+```
+\newpage
+Widzimy pojawiające się sytuację jak w zmiennej **Price**, gdzie mamy "low" i "Low" pozbędę się takich błędów przed dalszą eksploracją.
+Nie ma większego sensu przygladać się macierzy korelacji ponieważ nie działa ona zbyt dobrze dla zmiennych kategorycznych. Sprawdzę, więc 
+rozkład zmiennej ciagłej "Rating": 
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+
+
+ggplot(dresses_sales,aes(x=Rating))+geom_density()+theme_minimal()
+```
+\newpage
+
+
+
+Widzimy rozkład bimodalny ale z opisu wiemy ,że Rating przyjmuje wartości z zbioru 1-5 więc 0 należy traktować jako braki danych. Po ich usunięciu:\
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE,fig.pos="H"}
+
+d <- ifelse(dresses_sales$Rating==0,TRUE,FALSE)
+dresses_sales$Rating[d] <- NA
+ggplot(dresses_sales,aes(x=Rating))+geom_density()+theme_minimal()
+
+```
+\newpage
+Przyjżymy się jeszcze dyskretnym rozkładom zmiennych:\
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE,fig.pos="H",fig.height=15,fig.width=12}
+plot_bar(dresses_sales,nrow=5,ncol=3,theme_config = list(axis.text.y=element_text(size=12)))
+
+```
+Widzimy ,że w wiekszości są to zmienne o rozkładie wykładniczym. Warto też zauważyć dość równy podział klas.
+\newpage
+## Braki Danych 
+Na początek przyjrzymy się rozłożeniu braków danych: \
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE,fig.pos="H"}
+
+vis_dat(dresses_sales)
+
+```
+Widzimy ,że większe ilości braków danych występują w przypadku zmiennych walseline,Material,FabricType,Decoration,Pattern oraz Rating jeśli jako braki traktować 0. Oprócz tego widać pojedyncze braki w pozostałych zmiennych. Z nimi poradzę sobie poprzez usunięcie 7 wierszy  z całej ramki jeszcze przed rozpoczęciem testów. 
+```{r message=FALSE, warning=FALSE, include=FALSE}
+data_name <- c("Price","Size","Season","NeckLine","SleeveLength")
+indeks <- rep(FALSE,times=500)
+
+for (i in data_name){
+  
+  indeks <- indeks+is.na(dresses_sales[,i])
+  
+}
+
+indeks <- as.logical(indeks)
+indeks <- !indeks
+dresses_sales <- dresses_sales[indeks,]
+
+
+dresses_sales$Class <- ifelse(dresses_sales$Class==1,"good","bad")
+
+dresses_sales[, 'Class'] <- as.factor(dresses_sales[, 'Class'])
+for (i in c(1,2,4:13)){
+  dresses_sales[,i] <- as.factor(dresses_sales[,i])
+}
+```
+\newpage
+## Uzupełnanie braków danych
+W tej sekcij przygotuję dane uzupełnione na różne sposoby: \ 
+```{r echo=TRUE,include=TRUE}
+#Zaczniemy od usunięcia kolumn zawierających braki 
+dresses_sales_col_remove <- dresses_sales[,-c(3,8:12)]
+#Usunięcia wierszy zawierających braki 
+dresses_sales_row_remove<- dresses_sales%>%drop_na()
+#uzupełnienie medianą,średnia,modą) potrzebny będzie podział zbioru na testowy i treningowy.
+
+#Do pozostałych technik
+# Wykorzystamy stały podział na zbiory testowy i trenignowy 
+train_set = sample(length(row.names(dresses_sales)), 0.8 * length(row.names(dresses_sales)))
+test_set = setdiff(seq_len(length(row.names(dresses_sales))), train_set)
+
+# Uzupełnię osobno w zbiorze testowym i treningowym
+columns_to_imput <- c('waiseline','Material','FabricType','Decoration','Pattern')
+
+# Uzupełnanie modą 
+Mode <- function(x) {
+  ux <- unique(x[!is.na(x)])
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+
+
+dresses_sales_mode <- dresses_sales
+for (i in columns_to_imput){
+  mode <- Mode(dresses_sales_mode[train_set,i])
+  NA_position <- ifelse(is.na(dresses_sales_mode[train_set,i]),TRUE,FALSE)
+  dresses_sales_mode[train_set,i][NA_position] <- mode 
+  
+}
+dresses_sales_mode_mean <- dresses_sales_mode
+dresses_sales_mode_median <- dresses_sales_mode
+
+mode <- Mode(dresses_sales_mode[train_set,'Rating'])
+NA_position <- ifelse(is.na(dresses_sales_mode[train_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode[train_set,'Rating'][NA_position] <- mode 
+
+# Uzupełnaianie inaczej jest możliwe tylko dla kolumny Rating w innych 
+# wypadkach średnia ani mediana nie ma sensu 
+
+# Uzupełneinie średnią zmiennej Rating
+mean_ <- mean(dresses_sales_mode_mean[train_set,'Rating'],na.rm=TRUE)
+NA_position <- ifelse(is.na(dresses_sales_mode_mean[train_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode_mean[train_set,'Rating'][NA_position] <- mean_
+# Uzupełnianie zmiennej Rating medianą
+media <- median(dresses_sales_mode_median[train_set,'Rating'],na.rm=TRUE)
+NA_position <- ifelse(is.na(dresses_sales_mode_median[train_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode_median[train_set,'Rating'][NA_position] <- media
+```
+Po przygotowaniu danych można przejść do trenowania algorytmu.
+\newpage
+
+## Przygotowanie algorytmu
+
+```{r}
+library("mlr3learners")
+mlr_learners
+
+learner = mlr_learners$get("classif.rpart")
+print(learner)
+```
+Użylem  krosvalidacji do znaleziena najlepszych parametrów dla wybranego uzupełnienia (będę uzywał drzewa decyzyjnego). Funkcja znajdująca najlepsze parametry:
+
+```{r fun, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE,include=TRUE}
+
+
+
+
+# Krosvalidacja 
+
+# funkcja zwraca algorytm z optymalnymi parametrami 
+# do funkcji podajemy zbiór treningowy
+param_search <- function(df){
+task = TaskClassif$new(id = "col_remove", backend = df, target = "Class")
+cv = rsmp("cv", folds = 5)
+heat_map <- matrix(nrow=20,ncol=30)
+rownames(heat_map) <- 1:20
+  
+
+
+
+for (i in 1:20){
+ for (j in  1:30){
+   learner = mlr_learners$get("classif.rpart")
+   learner$param_set$values = mlr3misc::insert_named(
+  learner$param_set$values,
+  list(cp = i/20, minsplit = j)
+)
+
+
+   invisible(capture.output(rr <-  resample(task, learner, cv)))
+
+   heat_map[i,j] <- mean(rr$score(msr("classif.acc"))$classif.acc)
+   
+ }
+ 
+} 
+# Zwraca algorytm z najlepszymi parametrami 
+a<- which(heat_map == max(heat_map), arr.ind = TRUE)
+best_lerner = mlr_learners$get("classif.rpart")
+learner$param_set$values = mlr3misc::insert_named(
+  learner$param_set$values,
+  list(cp = a[1]/20, minsplit = a[2]))
+return(best_lerner)
+}
+
+# Funkcja przeprowadzająca test 
+accuracy <- msr("classif.acc")
+precision <- msr("classif.precision")
+
+
+test <-  function(alg,train_s,test_s,df){
+  task <- TaskClassif$new(id = "some", backend = df, target = "Class")
+  
+ # Trenowanie
+  alg$train(task, row_ids = train_s)
+
+  # Predykcja
+  prediction <- alg$predict(task, row_ids = test_s)
+  
+  # Miary
+  acc <- prediction$score(accuracy)
+  pr <- prediction$score(precision)
+
+ return(c(acc,pr)) 
+  }
+
+```
+## Porównanie technik imputacij danych 
+W każdym wypadku postepuję według schematu:\
+1. Przy pomocy kroswalidacji znajduję najlpesze wartości parametrów na zbiorze treningowym,\
+2. Trenuję algorytm na zbiorze treningowym z ustalonymi parametrami,\
+3. Stosuję wybraną technikę imputacji dla zbioru testowego,\
+4. Testuję wytrenowany algorytm na zbiorze testowym. \
+Zaczniemy od usuwania kolumn:
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, dependson=-1,include=TRUE}
+# Używamy przygotowanych wczesniej indeksów testowych i treningowych 
+set.seed(123)
+alg <- param_search(dresses_sales_col_remove[train_set,])
+out_col<- test(alg,train_set,test_set,dresses_sales_col_remove)
+print(paste0("Dokładność :",round(out_col[1],digits = 4)))
+print(paste0("Precyzja :",round(out_col[2],digits = 4)))
+```
+Usuwanie wierszy:
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, dependson=-1,include=TRUE}
+# W tym wypadku nie można użyć wcześniej przygotowanych zbiorów
+set.seed(123)
+row.names(dresses_sales_row_remove) <- 1:75
+train_set_s = sample(length(row.names(dresses_sales_row_remove)), 0.8 * length(row.names(dresses_sales_row_remove)))
+test_set_s = setdiff(seq_len(length(row.names(dresses_sales_row_remove))), train_set)
+
+alg <- param_search(dresses_sales_row_remove[train_set_s,])
+out_row<- test(alg,train_set_s,test_set_s,dresses_sales_row_remove)
+print(paste0("Dokładność :",round(out_row[1],digits = 4)))
+print(paste0("Precyzja :",round(out_row[2],digits = 4)))
+```
+Dalej w analogiczy sposób używająć wcześniej przygotowanego podziału.\
+Uzupełnianie modą: 
+```{r echo=FALSE, message=FALSE, warning=FALSE,dependson=-1,cache=TRUE,include=TRUE}
+# Używamy przygotowanych wczesniej indeksów testowych i treningowych 
+set.seed(123)
+alg <- param_search(dresses_sales_mode[train_set,])
+# Uzupełnianie zbioru testowego 
+
+
+for (i in columns_to_imput){
+  mode <- Mode(dresses_sales_mode[test_set,i])
+  NA_position <- ifelse(is.na(dresses_sales_mode[test_set,i]),TRUE,FALSE)
+  dresses_sales_mode[test_set,i][NA_position] <- mode 
+}
+mode <- Mode(dresses_sales_mode[test_set,'Rating'])
+NA_position <- ifelse(is.na(dresses_sales_mode[test_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode[test_set,'Rating'][NA_position] <- mode 
+
+
+
+out_mode<- test(alg,train_set,test_set,dresses_sales_mode)
+print(paste0("Dokładność :",round(out_mode[1],digits = 4)))
+print(paste0("Precyzja :",round(out_mode[2],digits = 4)))
+```
+Uzupełnianie zmiennych kategorycznych modą i ciągłych średnią:
+```{r echo=FALSE, message=FALSE, warning=FALSE,dependson=-1,cache=TRUE,include=TRUE}
+# Używamy przygotowanych wczesniej indeksów testowych i treningowych 
+set.seed(123)
+
+# Uzupełnianie zbioru testowego 
+
+
+for (i in columns_to_imput){
+  mode <- Mode(dresses_sales_mode_mean[test_set,i])
+  NA_position <- ifelse(is.na(dresses_sales_mode_mean[test_set,i]),TRUE,FALSE)
+  dresses_sales_mode_mean[test_set,i][NA_position] <- mode 
+}
+mode <- mean(dresses_sales_mode_mean[test_set,'Rating'],na.rm = TRUE)
+NA_position <- ifelse(is.na(dresses_sales_mode_mean[test_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode_mean[test_set,'Rating'][NA_position] <- mode 
+
+alg <- param_search(dresses_sales_mode_mean[train_set,])
+
+out_mode_mean<- test(alg,train_set,test_set,dresses_sales_mode_mean)
+print(paste0("Dokładność :",round(out_mode_mean[1],digits = 4)))
+print(paste0("Precyzja :",round(out_mode_mean[2],digits = 4)))
+```
+Uzupełnianie zminnych kategorycznych modą i ciągłych medianą:
+```{r echo=FALSE, message=FALSE, warning=FALSE,dependson=-1,cache=TRUE,include=TRUE}
+# Używamy przygotowanych wcześniej indeksów testowych i treningowych 
+set.seed(123)
+# Uzupełnienie  zbioru testowego 
+for (i in columns_to_imput){
+  mode <- Mode(dresses_sales_mode_median[test_set,i])
+  NA_position <- ifelse(is.na(dresses_sales_mode_median[test_set,i]),TRUE,FALSE)
+  dresses_sales_mode_median[test_set,i][NA_position] <- mode 
+}
+mode <- median(dresses_sales_mode_median[test_set,'Rating'],na.rm = TRUE)
+NA_position <- ifelse(is.na(dresses_sales_mode_median[test_set,'Rating']),TRUE,FALSE)
+dresses_sales_mode_median[test_set,'Rating'][NA_position] <- mode 
+
+
+alg <- param_search(dresses_sales_mode_median[train_set,])
+out_mode_median<- test(alg,train_set,test_set,dresses_sales_mode_median)
+print(paste0("Dokładność :",round(out_mode_median[1],digits = 4)))
+print(paste0("Precyzja :",round(out_mode_median[2],digits = 4)))
+```
+Ponieważ drzewa decyzjne dopuszczają taką możliwość sprawdżmy jaki będzie wynik bez usuwania braków: 
+```{r echo=FALSE, message=FALSE, warning=FALSE,dependson=-1,cache=TRUE,include=TRUE}
+# Używamy przygotowanych wczesniej indeksów testowych i treningowych 
+set.seed(123)
+alg <- param_search(dresses_sales[train_set,])
+out<- test(alg,train_set,test_set,dresses_sales)
+print(paste0("Dokładność :",round(out[1],digits = 4)))
+print(paste0("Precyzja :",round(out[2],digits = 4)))
+```
+
+
+Zastosuje jescze jedną technike polegającą na zamianie kolumny z brakami na kolune 0,1 gdzie 0 oznacza brak danych.
+Rating zastąpimy średnią :
+```{r echo=FALSE,include=TRUE, message=FALSE, warning=FALSE, cache=TRUE, dependson=-1}
+# Używamy przygotowanych wczesniej indeksów testowych i treningowych 
+set.seed(123)
+dresses_sales_extra_col <- dresses_sales
+# Zbiór treningowy 
+mean_ <- mean(dresses_sales_extra_col[train_set,'Rating'],na.rm=TRUE)
+NA_position <- ifelse(is.na(dresses_sales_extra_col[train_set,'Rating']),TRUE,FALSE)
+dresses_sales_extra_col[train_set,'Rating'][NA_position] <- mean_
+# Zbiór testowy 
+mean_ <- mean(dresses_sales_extra_col[test_set,'Rating'],na.rm=TRUE)
+NA_position <- ifelse(is.na(dresses_sales_extra_col[test_set,'Rating']),TRUE,FALSE)
+dresses_sales_extra_col[test_set,'Rating'][NA_position] <- mean_
+
+for( i in  c('waiseline','Material','FabricType','Decoration','Pattern')){
+  column <- ifelse(is.na(dresses_sales_extra_col[,i]),0,1)
+  dresses_sales_extra_col[,i] <- column 
+}
+
+
+alg <- param_search(dresses_sales_extra_col[train_set,])
+out_extra<- test(alg,train_set,test_set,dresses_sales_extra_col)
+print(paste0("Dokładność :",round(out_extra[1],digits = 4)))
+print(paste0("Precyzja :",round(out_extra[2],digits = 4)))
+```
+
+\newpage
+## Podsumowanie 
+Porównanie wyników 
+```{r,echo=FALSE, message=FALSE, warning=FALSE,include=TRUE}
+wyniki <- as.data.frame( matrix(nrow = 7,ncol = 2))
+colnames(wyniki) <- c("Dokładność","Precyzja")
+rownames(wyniki) <- c("Usuwanie kolumn","Usuwanie wierszy",
+                      "Uzupełnanie modą","Uzupełnanie modą i średnią","Uzupełnianie modą i medianą","Brak uzupełniania",
+                      "Kolumny 0-1"
+                      )
+wyniki[1,] <- out_col
+wyniki[2,] <- out_row
+wyniki[3,] <- out_mode
+wyniki[4,] <- out_mode_mean
+wyniki[5,] <- out_mode_median
+wyniki[6,] <- out
+wyniki[7,] <- out_extra
+
+wyniki[,1] <- round(wyniki[,1],digits = 3)
+wyniki[,2] <- round(wyniki[,2],digits = 3)
+knitr::kable(wyniki,caption = "Wyniki testów ")
+
+```
+
+Po pierwsze należy zauważyć ,że wyniki są ogólnie słabe może to wynikać z danych zawierających prawie same zmienne kategoryczne (sytuację mógł by poprawić ich encoding).\
+Porównanie technik imputacij:\
+1.**Usuwanie kolumn** - dobry wynik na tle pozostałych , ale prowadzi do usunięcia połowy danych nie jest to najlepsze rozwiązanie w ogólnym
+przypadku,\
+2.**Usuwanie wierszy** - wynik pozornie dobry, ale należy pamiętać ,że w pozostawiło to niecałe 20% danych czyli 75 obserwacij. Ciężko wyciągać jakieś wnioski na podstawie tak małej próbki, ale napewno prowadzi do utraty sporej części danych,\
+3.**Uzupełnianie modą** - wynik nie zbyt dobry bliski klasyfikatora przypadkowego , \
+4.**Uzupełnianie modą i średnią** - wynik taki sam jak poprzednio, \
+5.**Uzupełnianie modą i medianą** - wynik taki jak dwa poprzednie, wypełnienie kolumny Rating nie ma większego znaczenia,\
+6.**Brak uzupełnienia** - wynik nieco lepszy od poprzednich choć również bardzo słaby, w praktyce miało to być coś w rodzaju próby kontrolnej,\
+7.**Kolumna 0-1** - Najlepszy ze sposobów ,który choć traci nieco danych prowadzi do najlepszych wyników.
