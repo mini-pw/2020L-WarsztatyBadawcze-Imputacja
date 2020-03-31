@@ -20,29 +20,24 @@ W pracy domowej 1 na zbiorze danych 'Credit' wykorzystam kilka prostych technik 
 ## Informacje o zbiorze danych 'Credit'
 
 Zbiór danych "Credit" prezentuje informacje o kredytobiorcach. 
-Będziemy próbowali przewidzień czy dany klient dostanie kretyd, czy nie. Po zmapowaniu na liczby, klasa 1 oznacza że osoba nie dostanie kredytu, a klasa 2 - że nie. Wszystkie kolumny jesteśmy w stanie zamienić na numeryczne - tak aby model działał dobrze. 
-
+Będziemy próbowali przewidzień czy dany klient dostanie kretyd, czy nie. Po zmapowaniu na liczby, klasa 1 oznacza że osoba nie dostanie kredytu, a klasa 2 - że nie.
 
 
 ```{r}
 data = read.csv("C:/Users/Ada/Desktop/dataset_29_credit-a.csv")
 data[data=="?"] <- NaN #zamieniam znaki zapytania na NaN
-data <- lapply(data, as.numeric)
-data<- data.frame(data)
-head(data)
+data$A2 <- as.numeric(as.character(data$A2))
+data$A9 <- as.numeric(as.character(data$A8))
 
+head(data)
+colnames(data) <- c("Sex", "Age", "Debt", "Married", "BankCustomer", "EducationLevel", "Ethicity", "Years employed", "PriorDefault", "Employed", "CreditScore", "Driverslicense", "Citizen", "Zipcode", "Income", "class")
 ```
 
 
-## Braki danych
+## Rozkład zmiennych i braki danych
 
 
 Sprawdzenie liczby braków danych
-
-```{r}
-miss_var_summary(data)
-
-```
 
 
 
@@ -52,11 +47,36 @@ vis_dat(data, palette='qual')
 
 ```
 
+
+```{r}
+data$class <- as.numeric(data$class)
+data <- lapply(data, as.numeric)
+data<- data.frame(data)
+
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+
+data %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_histogram()
+```
 ```{r}
 vis_miss(data, cluster = TRUE)
 
 ```
 
+
+
+
+```{r}
+miss_var_summary(data)
+
+```
 
 ```{r}
 gg_miss_case(data) +ggtitle("Rozkład wierszy z brakami danych")
@@ -64,11 +84,17 @@ gg_miss_case(data) +ggtitle("Rozkład wierszy z brakami danych")
 ```
 ```{r, echo=FALSE}
 library(mice)
-md.pattern(data)
+md.pattern(data, rotate.names = TRUE)
 
 ```
 
 
+```{r}
+data$class <- as.numeric(data$class)
+data <- lapply(data, as.numeric)
+data<- data.frame(data)
+
+```
 Po wykonaniu rysunków pomocniczych, łatwo zauważyć że większość wierszy jest pełna. 
 
 ## Usunięcie kolumn z brakami danych 
@@ -288,9 +314,9 @@ set.seed(123)
 id_train <- sample(1:n, 3/4 * n)
 df_train <- data[id_train, c(cechy, klasa)]
 
-df_train[,c(1,4,5,6,7)] <- lapply(df_train[,c(1,4,5,6,7)], function(x) {
+df_train[,c(1,4,5,6,7,14)] <- lapply(df_train[,c(1,4,5,6,7,14)], function(x) {
   replace(x, is.na(x), mode(na.omit(x)))})
-df_train[,c(2,14)] <- lapply(df_train[,c(2,14)], function(x) {
+df_train[,c(2)] <- lapply(df_train[,c(2)], function(x) {
   replace(x, is.na(x), mean(na.omit(x)))})
 
 df_train <- data.frame(df_train)
@@ -299,9 +325,9 @@ df_train <- data.frame(df_train)
 
 id_test <- setdiff(1:n, id_train)
 df_test <- data[id_test, c(cechy, klasa)]
-df_test[,c(1,4,5,6,7)] <- lapply(df_test[,c(1,4,5,6,7)], function(x) {
+df_test[,c(1,4,5,6,7,14)] <- lapply(df_test[,c(1,4,5,6,7,14)], function(x) {
   replace(x, is.na(x), mode(na.omit(x)))})
-df_test[,c(2,14)] <- lapply(df_test[,c(2,14)], function(x) {
+df_test[,c(2)] <- lapply(df_test[,c(2)], function(x) {
   replace(x, is.na(x), mean(na.omit(x)))})
 
 df_test <- data.frame(df_test)
@@ -367,9 +393,9 @@ set.seed(123)
 id_train <- sample(1:n, 3/4 * n)
 df_train <- data[id_train, c(cechy, klasa)]
 
-df_train[,c(1,4,5,6,7)] <- lapply(df_train[,c(1,4,5,6,7)], function(x) {
+df_train[,c(1,4,5,6,7,14)] <- lapply(df_train[,c(1,4,5,6,7,14)], function(x) {
   replace(x, is.na(x), mode(na.omit(x)))})
-df_train[,c(2,14)] <- lapply(df_train[,c(2,14)], function(x) {
+df_train[,c(2)] <- lapply(df_train[,c(2)], function(x) {
   replace(x, is.na(x), median(na.omit(x)))})
 
 df_train <- data.frame(df_train)
@@ -378,9 +404,9 @@ df_train <- data.frame(df_train)
 
 id_test <- setdiff(1:n, id_train)
 df_test <- data[id_test, c(cechy, klasa)]
-df_test[,c(1,4,5,6,7)] <- lapply(df_test[,c(1,4,5,6,7)], function(x) {
+df_test[,c(1,4,5,6,7,14)] <- lapply(df_test[,c(1,4,5,6,7,14)], function(x) {
   replace(x, is.na(x), mode(na.omit(x)))})
-df_test[,c(2,14)] <- lapply(df_test[,c(2,14)], function(x) {
+df_test[,c(2)] <- lapply(df_test[,c(2)], function(x) {
   replace(x, is.na(x), median(na.omit(x)))})
 
 df_test <- data.frame(df_test)
@@ -514,4 +540,4 @@ ggplot(bars)+geom_col(aes(x=name, y=F), fill="blueviolet", width=0.6, alpha=0.7)
 
 ```
 
-Wszystkie metody wypadły podobnie ok. 0.7, najwyższy dla usuwania kolumn. Jest to niespodziewany wynik. Może po prostu wszystkie użyte przeze mnie metody imputacji są równie złe. 
+Wszystkie metody wypadły podobnie ok. 0.7, najwyższy dla usuwania kolumn. Jest to niespodziewany wynik. Może po prostu wszystkie użyte przeze mnie metody imputacji są równie złe. W zbiorze jest bardzo mało braków danych, ciężko tu cokolwiek sprawdzić,
