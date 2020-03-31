@@ -32,5 +32,5 @@ dataset <- dataset_raw
 
 ## create json
 
-CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'woznicak')
-
+file <- CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'MaroonBlue')
+write(file, 'dataset.json')
