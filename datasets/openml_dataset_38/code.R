@@ -23,14 +23,11 @@ target_column <- dataset_openml$target.features
 # preprocessing
 ## cleaning types of columns, removing columns etc.
 dataset <- dataset_raw %>% 
-  # drop 'TBG' column: whole is empty
-  select(-TBG) %>% 
-  # drop observation with missing age: just one in dataset
-  drop_na(age)
-# drop one observation with age==455
-dataset <- dataset[dataset$age!=455,]
+  # drop 'TBG' column: whole is empty, 'TBG_measured' column: has one same value
+  select(-TBG, -TBG_measured) %>%
+  # change unrealistic age values to NAs
+  mutate(age=ifelse(age>123, NA, age))
   
-
 ## create json
-file <- CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'okcze')
+file <- CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'okcze and p-przybylek')
 write(file, 'dataset.json')
