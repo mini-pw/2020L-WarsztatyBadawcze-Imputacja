@@ -1,0 +1,543 @@
+---
+title: "Warsztaty Badawcze - Praca Domowa 1"
+author: "Ada Gąssowska"
+date: "15 marca 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(farff)
+library(dplyr)
+library(naniar)
+library(visdat)
+library(ggplot2)
+library(OpenML)
+library(caret)
+```
+
+W pracy domowej 1 na zbiorze danych 'Credit' wykorzystam kilka prostych technik imputacji danych. Następnie sprawdzę jak na przygotowanych ramkach działa algorytm knn (k najbliższych sąsiadów).
+
+## Informacje o zbiorze danych 'Credit'
+
+Zbiór danych "Credit" prezentuje informacje o kredytobiorcach. 
+Będziemy próbowali przewidzień czy dany klient dostanie kretyd, czy nie. Po zmapowaniu na liczby, klasa 1 oznacza że osoba nie dostanie kredytu, a klasa 2 - że nie.
+
+
+```{r}
+data = read.csv("C:/Users/Ada/Desktop/dataset_29_credit-a.csv")
+data[data=="?"] <- NaN #zamieniam znaki zapytania na NaN
+data$A2 <- as.numeric(as.character(data$A2))
+data$A9 <- as.numeric(as.character(data$A8))
+
+head(data)
+colnames(data) <- c("Sex", "Age", "Debt", "Married", "BankCustomer", "EducationLevel", "Ethicity", "Years employed", "PriorDefault", "Employed", "CreditScore", "Driverslicense", "Citizen", "Zipcode", "Income", "class")
+```
+
+
+## Rozkład zmiennych i braki danych
+
+
+Sprawdzenie liczby braków danych
+
+
+
+```{r}
+vis_dat(data, palette='qual')
+
+
+```
+
+
+```{r}
+data$class <- as.numeric(data$class)
+data <- lapply(data, as.numeric)
+data<- data.frame(data)
+
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+
+data %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_histogram()
+```
+```{r}
+vis_miss(data, cluster = TRUE)
+
+```
+
+
+
+
+```{r}
+miss_var_summary(data)
+
+```
+
+```{r}
+gg_miss_case(data) +ggtitle("Rozkład wierszy z brakami danych")
+
+```
+```{r, echo=FALSE}
+library(mice)
+md.pattern(data, rotate.names = TRUE)
+
+```
+
+
+```{r}
+data$class <- as.numeric(data$class)
+data <- lapply(data, as.numeric)
+data<- data.frame(data)
+
+```
+Po wykonaniu rysunków pomocniczych, łatwo zauważyć że większość wierszy jest pełna. 
+
+## Usunięcie kolumn z brakami danych 
+Pierwszą techniką jaką wypróbuję będzie ta najprostsza - usunięcie kolumn w których jest jakiś NaN i spróbowanie przewidzenia klasy na podstawie danych z reszty kolumn. 
+
+
+```{r, echo=FALSE}
+draw_confusion_matrix <- function(cm) {
+
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+
+  # create the matrix 
+  rect(150, 430, 240, 370, col='#3F97D0')
+  text(195, 435, 'Class1', cex=1.2)
+  rect(250, 430, 340, 370, col='#F7AD50')
+  text(295, 435, 'Class2', cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col='#F7AD50')
+  rect(250, 305, 340, 365, col='#3F97D0')
+  text(140, 400, 'Class1', cex=1.2, srt=90)
+  text(140, 335, 'Class2', cex=1.2, srt=90)
+
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}  
+
+
+```
+
+```{r, echo=FALSE}
+data_del <- data[colSums(is.na(data)) ==0]
+
+klasa <-colnames(data_del)[9]
+
+cechy <- colnames(data_del)[-9]
+p <- length(cechy)
+n <- nrow(data_del)
+
+set.seed(123)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- data_del[id_train, c(cechy, klasa)]
+id_test <- setdiff(1:n, id_train)
+df_test <- data_del[id_test, c(cechy, klasa)]
+
+library(class) # albo np. biblioteka FNN
+
+knn_classifier <- knn(train=df_train[, cechy], 
+                      cl=df_train$class,
+                      test=df_test[, cechy], 
+                      k=10,
+                      use.all=TRUE)
+
+prediction <- as.numeric(knn_classifier)
+table('Reference'=df_test$class, 'Prediction (usuwanie)'=prediction)
+
+
+```
+
+```{r, echo=FALSE}
+type_of_error <- ifelse(df_test$class==2 & prediction==2, "TN",
+                      ifelse(df_test$class==2 & prediction==1, "FP",
+                       ifelse(df_test$class==1 & prediction==2, "FN", "TP")))
+
+#Create raw confusion matrix using "table" function
+(conf.val <- table(type_of_error))
+accuracy <- (conf.val['TN'])/sum(conf.val)
+print("Accuracy:")
+print(accuracy)
+error_rate <- (conf.val['FN'])/sum(conf.val)
+print("Error rate:")
+print(error_rate)
+
+
+precision <- (conf.val['TP'])/(+conf.val['TP']  +conf.val['FP'])
+recall <- (conf.val['TP'])/(conf.val['TP']  +conf.val['FN'])
+F_11 <- 2* precision* recall/(precision + recall) 
+print("F1:")
+print(F_11)
+```
+```{r}
+
+cm <- confusionMatrix(as.factor(prediction), as.factor(df_test$class))
+
+
+
+draw_confusion_matrix(cm)
+
+```
+
+
+
+
+## Wypełnienie braków danych modą
+
+Drugą techniką imputacji jaką opiszę będzie wypełnienie braków danych modą. 
+
+Jako że R nie ma wbudowanej funckji do liczenia mody napiszę ją sama :
+
+```{r}
+mode <- function(x){
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+```
+
+
+
+```{r, echo=FALSE}
+klasa <-colnames(data)[16]
+cechy <- colnames(data)[-16]
+p <- length(cechy)
+n <- nrow(data)
+
+set.seed(123)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- data[id_train, c(cechy, klasa)]
+df_train <- lapply(df_train, function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_train <- data.frame(df_train)
+
+id_test <- setdiff(1:n, id_train)
+df_test <- data[id_test, c(cechy, klasa)]
+df_test <- lapply(df_test, function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_test <- data.frame(df_test)
+
+
+knn_classifier <- knn(train=df_train[, cechy], 
+                      cl=df_train$class,
+                      test=df_test[, cechy], 
+                      k=10,
+                      use.all=TRUE)
+#logistic_classifier <- glm(Class~. , data=df_train, family = binomial(link = "logit"))
+#predict(logistic_classifier, newdata=df_test[,cechy], type="response")[20:30]
+
+prediction <- as.numeric(knn_classifier)
+print("Algorytm zakwalifikował dane następująco:")
+table('Reference'=df_test$class, 'Prediction (Moda)'=prediction)
+
+```
+
+
+```{r, echo=FALSE}
+type_of_error <- ifelse(df_test$class==2 & prediction==2, "TN",
+                      ifelse(df_test$class==2 & prediction==1, "FP",
+                       ifelse(df_test$class==1 & prediction==2, "FN", "TP")))
+
+
+(conf.val <- table(type_of_error))
+accuracy <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print("Accuracy:")
+print(accuracy)
+error_rate <- (conf.val['FP']+conf.val['FN'])/sum(conf.val)
+print("Error rate:")
+print(error_rate)
+
+precision <- (conf.val['TP'])/(+conf.val['TP']  +conf.val['FP'])
+recall <- (conf.val['TP'])/(conf.val['TP']  +conf.val['FN'])
+F_12 <- 2* precision* recall/(precision + recall) 
+print("F1:")
+print(F_12)
+
+```
+
+```{r}
+
+cm <- confusionMatrix(as.factor(prediction), as.factor(df_test$class))
+
+
+
+draw_confusion_matrix(cm)
+
+```
+
+
+## Wypełnianie średnią (dla zmiennych kategorycznych zostawię modę)
+
+
+Teraz w zmiennych kategorycznych w miejscu braków wstawię modę, a w zmiennych ciągłych - średnią.
+
+```{r, echo=FALSE}
+
+klasa <-colnames(data)[16]
+cechy <- colnames(data)[-16]
+p <- length(cechy)
+n <- nrow(data)
+
+set.seed(123)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- data[id_train, c(cechy, klasa)]
+
+df_train[,c(1,4,5,6,7,14)] <- lapply(df_train[,c(1,4,5,6,7,14)], function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_train[,c(2)] <- lapply(df_train[,c(2)], function(x) {
+  replace(x, is.na(x), mean(na.omit(x)))})
+
+df_train <- data.frame(df_train)
+
+
+
+id_test <- setdiff(1:n, id_train)
+df_test <- data[id_test, c(cechy, klasa)]
+df_test[,c(1,4,5,6,7,14)] <- lapply(df_test[,c(1,4,5,6,7,14)], function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_test[,c(2)] <- lapply(df_test[,c(2)], function(x) {
+  replace(x, is.na(x), mean(na.omit(x)))})
+
+df_test <- data.frame(df_test)
+
+
+knn_classifier <- knn(train=df_train[, cechy], 
+                      cl=df_train$class,
+                      test=df_test[, cechy], 
+                      k=10,
+                      use.all=TRUE)
+
+
+prediction <- as.numeric(knn_classifier)
+table('Reference'=df_test$class, 'Prediction (Moda/Średnia)'=prediction)
+
+
+```
+
+
+```{r, echo=FALSE}
+type_of_error <- ifelse(df_test$class==2 & prediction==2, "TN",
+                      ifelse(df_test$class==2 & prediction==1, "FP",
+                       ifelse(df_test$class==1 & prediction==2, "FN", "TP")))
+
+
+(conf.val <- table(type_of_error))
+accuracy <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print("Accuracy:")
+print(accuracy)
+error_rate <- (conf.val['FP']+conf.val['FN'])/sum(conf.val)
+print("Error rate:")
+print(error_rate)
+
+precision <- (conf.val['TP'])/(+conf.val['TP']  +conf.val['FP'])
+recall <- (conf.val['TP'])/(conf.val['TP']  +conf.val['FN'])
+F_13 <- 2* precision* recall/(precision + recall) 
+print("F1:")
+print(F_13)
+
+```
+
+```{r}
+
+cm <- confusionMatrix(as.factor(prediction), as.factor(df_test$class))
+
+
+
+draw_confusion_matrix(cm)
+
+```
+## Wypełnianie medianą (dla zmiennych kategorycznych moda)
+
+Podobnie jak w poprzednim punkcie, tylko zamiast średniej - mediana.
+
+```{r, echo=FALSE}
+
+klasa <-colnames(data)[16]
+cechy <- colnames(data)[-16]
+p <- length(cechy)
+n <- nrow(data)
+
+set.seed(123)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- data[id_train, c(cechy, klasa)]
+
+df_train[,c(1,4,5,6,7,14)] <- lapply(df_train[,c(1,4,5,6,7,14)], function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_train[,c(2)] <- lapply(df_train[,c(2)], function(x) {
+  replace(x, is.na(x), median(na.omit(x)))})
+
+df_train <- data.frame(df_train)
+
+
+
+id_test <- setdiff(1:n, id_train)
+df_test <- data[id_test, c(cechy, klasa)]
+df_test[,c(1,4,5,6,7,14)] <- lapply(df_test[,c(1,4,5,6,7,14)], function(x) {
+  replace(x, is.na(x), mode(na.omit(x)))})
+df_test[,c(2)] <- lapply(df_test[,c(2)], function(x) {
+  replace(x, is.na(x), median(na.omit(x)))})
+
+df_test <- data.frame(df_test)
+
+
+knn_classifier <- knn(train=df_train[, cechy], 
+                      cl=df_train$class,
+                      test=df_test[, cechy], 
+                      k=10,
+                      use.all=TRUE)
+
+
+prediction <- as.numeric(knn_classifier)
+table('Reference'=df_test$class, 'Prediction (Moda/Mediana)'=prediction)
+
+
+```
+
+
+```{r, echo=FALSE}
+type_of_error <- ifelse(df_test$class==2 & prediction==2, "TN",
+                      ifelse(df_test$class==2 & prediction==1, "FP",
+                       ifelse(df_test$class==1 & prediction==2, "FN", "TP")))
+
+
+(conf.val <- table(type_of_error))
+accuracy <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print("Accuracy:")
+print(accuracy)
+error_rate <- (conf.val['FP']+conf.val['FN'])/sum(conf.val)
+print("Error rate:")
+print(error_rate)
+
+precision <- (conf.val['TP'])/(+conf.val['TP']  +conf.val['FP'])
+recall <- (conf.val['TP'])/(conf.val['TP']  +conf.val['FN'])
+F_14 <- 2* precision* recall/(precision + recall) 
+print("F1:")
+print(F_14)
+
+```
+
+```{r}
+
+cm <- confusionMatrix(as.factor(prediction), as.factor(df_test$class))
+
+
+
+draw_confusion_matrix(cm)
+
+```
+
+## Wypełnienie losową wartością z kolumny
+
+Ostatnim sposobem imputacji jaki sprawdzę jest wybranie z kolumny losowej wartości, która nie jest NaN'em i wstawienie jej w miejsce braku. 
+
+```{r, echo=FALSE}
+
+klasa <-colnames(data)[16]
+cechy <- colnames(data)[-16]
+p <- length(cechy)
+n <- nrow(data)
+
+set.seed(123)
+id_train <- sample(1:n, 3/4 * n)
+df_train <- data[id_train, c(cechy, klasa)]
+
+df_train <- lapply(df_train, function(x) {
+  replace(x, is.na(x), sample(unique(x)[!is.na(unique(x))],1))})
+
+
+df_train <- data.frame(df_train)
+
+
+id_test <- setdiff(1:n, id_train)
+df_test <- data[id_test, c(cechy, klasa)]
+
+df_test <- lapply(df_test, function(x) {
+  replace(x, is.na(x), sample(unique(x)[!is.na(unique(x))],1))})
+
+df_test <- data.frame(df_test)
+
+
+knn_classifier <- knn(train=df_train[, cechy], 
+                      cl=df_train$class,
+                      test=df_test[, cechy], 
+                      k=10,
+                      use.all=TRUE)
+
+
+prediction <- as.numeric(knn_classifier)
+table('Reference'=df_test$class, 'Prediction (Random)'=prediction)
+
+
+```
+
+```{r,echo=FALSE}
+type_of_error <- ifelse(df_test$class==2 & prediction==2, "TN",
+                      ifelse(df_test$class==2 & prediction==1, "FP",
+                       ifelse(df_test$class==1 & prediction==2, "FN", "TP")))
+
+
+(conf.val <- table(type_of_error))
+accuracy <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print("Accuracy:")
+print(accuracy)
+error_rate <- (conf.val['FP']+conf.val['FN'])/sum(conf.val)
+print("Error rate:")
+print(error_rate)
+
+precision <- (conf.val['TP'])/(+conf.val['TP']  +conf.val['FP'])
+recall <- (conf.val['TP'])/(conf.val['TP']  +conf.val['FN'])
+F_15 <- 2* precision* recall/(precision + recall) 
+print("F1:")
+print(F_15)
+```
+
+```{r}
+
+cm <- confusionMatrix(as.factor(prediction), as.factor(df_test$class))
+
+
+
+draw_confusion_matrix(cm)
+
+```
+
+```{r, echo=FALSE}
+bars <- data.frame("name"=c("usuwanie kolumn", "moda", "średnia", "mediana", "losowa wartość"),"F"=c(F_11, F_12, F_13, F_14, F_15))
+bars
+ggplot(bars)+geom_col(aes(x=name, y=F), fill="blueviolet", width=0.6, alpha=0.7)+xlab("Metoda")+ylab("Współczynnik F1")
+
+```
+
+Wszystkie metody wypadły podobnie ok. 0.7, najwyższy dla usuwania kolumn. Jest to niespodziewany wynik. Może po prostu wszystkie użyte przeze mnie metody imputacji są równie złe. W zbiorze jest bardzo mało braków danych, ciężko tu cokolwiek sprawdzić,

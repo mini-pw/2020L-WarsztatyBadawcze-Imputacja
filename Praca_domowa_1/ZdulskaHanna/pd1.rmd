@@ -1,0 +1,286 @@
+---
+title: "PD1"
+author: "Hanna Zdulska"
+date: "3/10/2020"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message=FALSE)
+options(stringsAsFactors = FALSE)
+library(DataExplorer)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(mice)
+library(mlr3)
+library(mlr3learners)
+library(visdat)
+set.seed(123)
+```
+
+# Zbiór
+Do analizy posłuży nam zbiór irish ze strony [openml](https://www.openml.org/d/451)
+
+Irish Educational Transitions Data
+Data on educational transitions for a sample of 500 Irish schoolchildren aged 11 in 1967. The data were collected by Greaney and Kelleghan (1984), and reanalyzed by Raftery and Hout (1985, 1993).
+
+## Atrybuty
+
+* Sex: 1=male; 2=female.
+* DVRT (Drumcondra Verbal Reasoning Test Score).
+* Educational level attained
+* Leaving Certificate. 1 if Leaving Certificate not taken; 2 if taken.
+* Prestige score for father's occupation (calculated by Raftery and Hout, 1985).
+* Type of school: 1=secondary; 2=vocational; 9=primary terminal leaver.
+
+```{r}
+dane <- read.csv("./irish.csv")
+head(dane) %>% knitr::kable()
+```
+
+
+Zauważmy, iż Educational_level jest uszczegółowieniem kolumny Type_school. 
+```{r}
+unique(dane[,c('Educational_level', 'Type_school')]) %>% arrange(Type_school)
+```
+
+Przyjrzyjmy się bliżej "?"
+```{r}
+dane %>% filter(Educational_level =="?")
+```
+
+Są to sami mężczyźni z secondary school bez certyfikatu.
+
+```{r}
+# przekształćmy na factory
+dane$Sex <- as.factor(dane$Sex)
+dane$DVRT <- as.numeric(dane$DVRT)
+dane$Educational_level <- as.factor(dane$Educational_level)
+dane$Leaving_Certificate <- as.factor(dane$Leaving_Certificate)
+dane$Prestige_score <- as.numeric(as.character(dane$Prestige_score))
+dane$Type_school <- as.factor(dane$Type_school)
+summary(dane) %>% knitr::kable()
+```
+
+
+Spójrzmy na braki:
+```{r}
+vis_dat(dane)
+
+# uwzględnijmy pytajnik jako NA
+dane_bez_pytajnika <- dane
+dane_bez_pytajnika$Educational_level[dane[,"Educational_level"] == "?"] <- NA
+vis_miss(dane_bez_pytajnika, cluster = TRUE)
+
+# przyjmujemy te dane jako analizowane
+dane <- dane_bez_pytajnika
+```
+
+# Analiza
+## Histogramy
+
+```{r}
+DataExplorer::plot_histogram(dane)
+```
+
+
+W przypadku Prestige_score dużo nam to nie mówi, ale DVRT nieco przypomina rozkład normalny, czego moglibyśmy sie spodziewać - DVRT jest testem standaryzowanym.
+
+## Boxploty
+
+```{r}
+DataExplorer::plot_boxplot(dane, by = "Leaving_Certificate")
+ggplot(dane, aes(y = DVRT, color = Leaving_Certificate)) + geom_boxplot() + facet_grid(Sex~Type_school) + ggtitle("Boxplot DVRT w zależności od certyfikatu i typu szkoły")
+```
+
+
+Z drugiego plotu jasno wynika, iż nie ma osób, które byłyby w kat. primary_terminal_leaver i otrzymałyby certyfikat(co wydaje się być oczywiste, bo trudno nie ukończyć szkoły, a dostać certyfikat). W obu przypadkach osoby, które średnio uzyskały wyższy wynik na DVRT dostały certyfikat.
+
+Widać również pewną różnicę pomiędzy płciami - mężczyżni, który otrzymali certyfikat osiągnęli również średnio wyższe wyniki niż kobiety, które również otrzymały certyfikat.
+
+## Liczności klas
+```{r}
+DataExplorer::plot_bar(dane)
+```
+
+
+## Scatter plot
+
+```{r}
+clean_dane <- dane[!is.na(dane$Prestige_score),]
+ggplot(clean_dane, aes(x= Prestige_score, y = DVRT, color = Leaving_Certificate)) + geom_point() + geom_smooth()
+cat("Współczynnik korelacji liniowej dla zmiennych DVRT oraz Prestige_score", cor(clean_dane$DVRT, clean_dane$Prestige_score))
+```
+
+```{r}
+ggplot(dane, aes(x= Prestige_score, y = DVRT, color = Leaving_Certificate)) + geom_point() + facet_wrap(~Type_school)
+```
+
+
+Znaczna część certyfikatów leży w rękach uczniów z type_school secondary, którzy osiągneli wyższe wyniki niż rówieśnicy.
+
+
+## Rozkłady zmiennych ciągłych
+
+```{r}
+d1 <- DataExplorer::plot_density(dane)
+
+d3 <- ggplot(dane, aes(x = DVRT, color = Leaving_Certificate)) + geom_density()
+d4 <- ggplot(dane, aes(x = Prestige_score, color = Leaving_Certificate)) + geom_density()
+(d3 + d4)
+```
+
+Można zauważyć, iż osoby o wyższym wyniku z DVRT i wyższym prestige_score są bardziej prawdopodobne do otrzymania certyfikatu.
+
+```{r}
+ggplot(dane, aes(x=DVRT, color = Leaving_Certificate)) + geom_density() + facet_wrap(~Educational_level)
+```
+
+
+Przy wynikach DVRT - prawie rozkład normalny. Z ostatniego wykresu można zauważyć, iż tylko osoby z trzech kategorii dostały certyfikat:
+
+ * 3rd_level_complete
+ * 3rd_level_incomplete
+ * Senior_cycle_terminal_leaver-secondary_school
+
+Przyjrzyjmy sie temu bliżej:
+
+```{r}
+df <- dane[, c("Leaving_Certificate", "Educational_level")]
+ggplot(df, aes(x=Leaving_Certificate, fill = Educational_level)) + geom_bar() 
+#table(df)
+```
+
+
+Jest to bardzo jasne rozgraniczenie, które może wynikać z metodyki badania - cerftyfikat mogły na przykład dostać osoby spełniające konkretne warunki dotyczące poziomu edukacji.
+
+## Korelacje
+
+```{r}
+DataExplorer::plot_qq(dane)
+DataExplorer::plot_correlation(dane[,-3])
+```
+
+Jak w przypadku boxplotów - DVRT nieco przypomina rozkład normalny.
+W korelacjach widać, iż silniej skorelowane są czynniki takie jak wyższy poziom edukacji(Type_school_secondary), otrzymanie certyfikatu oraz wynik DVRT. Ujemnie skorelowany jest niższy poziom edukacji(type_school_vocational), nieuzyskanie certyfikatu oraz wynii DVRT.
+
+## Podsumowanie
+
+Nie ma co tu dużo pisać - osoby, które otrzymały leaving certificate, mają wyższe wykształcenie(na tle reszty, zbiór dotyczny 11-latków) osiągają średnio wyższe wyniki z DVRT. Nie ma wielkich różnic na tle płci. Strona źródłowa twierdzi, iż targetem jest Leaving_certificate, jednak wydaje sie być to mylne, biorąc pod uwagę, iż można to przewidzieć prostym if statmentem dotycznącym poziomu edukacji. Sądzę, że znaczenie bardziej interesującym problemem jest przewidzenie wyniku z DVRT.
+
+
+# Uzupełnienie danych
+
+Dane uzupełnimy w następujący sposób:
+ * usunięcie kolumn z brakującymi wartościmi 
+ * usunięcie wierszy z brakującymi wartościmi
+ * zastępienie Educational_level modą lub oznaczenie jako "?"
+ * zastąpienie Prestige_score średnią (=38.9346), medianą(=37) lub próbką
+ 
+```{r}
+df_remove_columns <- dane[, -which(colnames(dane) %in% c("Educational_level", "Prestige_score"))]
+df_remove_rows <- na.omit(dane)
+
+# Education_level <- "?" 
+df_pytajnik <- dane
+df_pytajnik$Educational_level[is.na(df_pytajnik$Educational_level)] <- "?"
+
+df_pytajnik_mean <- mice(df_pytajnik, method = "mean", m = 1, maxit = 1)
+
+# mean(Prestige_score) = 38.9346
+
+df_pytajnik_sample <- mice(df_pytajnik, method = "sample", m = 1, maxit = 1)
+med <- median(df_pytajnik$Prestige_score, na.rm = T)
+
+# median(Prestige_score) = 37
+
+df_pytajnik_median <- df_pytajnik
+df_pytajnik_median$Prestige_score[is.na(df_pytajnik_median$Prestige_score)] <- med
+
+# Education_level <- moda
+
+df_moda <- dane
+df_moda$Educational_level[is.na(df_moda$Educational_level)] <- "Senior_cycle_terminal_leaver-secondary_school"
+
+df_moda_mean <- mice(df_moda, method = "mean", m = 1, maxit = 1)
+df_moda_sample <- mice(df_moda, method = "sample", m = 1, maxit = 1)
+df_moda_median <- df_pytajnik
+df_moda_median$Prestige_score[is.na(df_moda_median$Prestige_score)] <- med
+
+
+dfs <- list(complete(df_pytajnik_mean), complete(df_pytajnik_sample), df_pytajnik_median, complete(df_moda_mean), complete(df_moda_sample), df_moda_median)
+```
+
+# Model
+
+## Target Leaving_Certificate
+
+```{r}
+get_pred <- function(df, target){
+  task = TaskClassif$new(id = "irish", backend = df, target = target)
+
+  train_set = sample(task$nrow, 0.8 * task$nrow)
+  test_set = setdiff(seq_len(task$nrow), train_set)
+
+  learner = mlr_learners$get("classif.ranger")
+
+  learner$train(task, row_ids = train_set)
+  learner$predict(task, row_ids = test_set)
+}
+
+p <- get_pred(df = df_remove_columns, "Leaving_Certificate")
+p$score()
+
+p <- get_pred(df = df_remove_rows, "Leaving_Certificate")
+p$score()
+
+res <- lapply(dfs, function(x){p <- get_pred(x, "Leaving_Certificate"); p$score() })
+res <- unlist(res )
+res2 <- data.frame(pytajnik = res[1:3], moda = res[4:6])
+rownames(res2) <- c("mean", "sample", "median")
+res2
+```
+
+Jak widać jest to słaby target do przewidywania - jak dało się to wcześniej zauważyć zależy on tylko od kolumny Educational_level. Niezależnie od zamienienia na modę czy pytajnik nie zmienia to faktu, że wartości zamienione w kolumnie Educational_level nie dostaną certyfikat. Jeśli usuniemy całe kolumny dostaniemy duży błąd, a w reszcie przypadków zerowy bądź bardzo mały. 
+
+
+## Target DVRT
+
+Nietrywialnym problemem jest przewidywanie wyników z testu DVRT:
+
+```{r}
+get_pred <- function(df, target){
+  task = TaskRegr$new(id = "irish", backend = df, target = target)
+
+  train_set = sample(task$nrow, 0.8 * task$nrow)
+  test_set = setdiff(seq_len(task$nrow), train_set)
+
+  learner = mlr_learners$get("regr.ranger")
+  learner$param_set
+  learner$train(task, row_ids = train_set)
+  learner$predict(task, row_ids = test_set)
+}
+
+p <- get_pred(df = df_remove_columns, "DVRT")
+p$score()
+
+p <- get_pred(df = df_remove_rows, "DVRT")
+p$score()
+
+res <- lapply(dfs, function(x){p <- get_pred(x, "DVRT"); p$score() })
+res <- unlist(res )
+res2 <- data.frame(pytajnik = res[1:3], moda = res[4:6])
+rownames(res2) <- c("mean", "sample", "median")
+res2
+
+```
+
+ * Usunięcie całych kolumn daje większy błąd niż usunięcie wierszy
+ * Lepiej radzi sobie mediana niż średnia w uzupełnianiu Prestige_score w obu opcjach zastąpienia Educational_level
+
