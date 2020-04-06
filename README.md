@@ -43,12 +43,20 @@
 
 
 Należy przygotować prezentację o wybranej pakiecie do imputacji danych. Prezentacje należy wykonać w grupach, najlepiej grupach projektowych. Oprócz krótkiej prezentacji z wprowadzeniem do technik użytych w danym pakiecie należy przygotować krótki skrypt z przykładem użycia pakietu. Propozycje pakietów:
+<<<<<<< HEAD
+- [Amelia](https://cran.r-project.org/web/packages/Amelia/index.html)
+- [softImpute](https://cran.r-project.org/web/packages/softImpute/index.html)
+- [missMDA](https://cran.r-project.org/web/packages/missMDA/index.html)
+- [mice](https://cran.r-project.org/web/packages/mice/index.html)
+- [missForest](https://cran.r-project.org/web/packages/missForest/index.html) - Rólkiewicz/Przybyłek/Wiśniewski/Pingielski
+=======
 - [Amelia](https://cran.r-project.org/web/packages/Amelia/index.html) - Jan Borowski, Piotr Fic, Filip Chszuszcz
 - [softImpute](https://cran.r-project.org/web/packages/softImpute/index.html) - Hanna Zdulska, Dawid Przybyliński, Jakub Kosterna
 - [missMDA](https://cran.r-project.org/web/packages/missMDA/index.html) - Mateusz Grzyb, Elżbieta Jowik, Ada Gąssowska
 - [mice](https://cran.r-project.org/web/packages/mice/index.html) - Martyna Majchrzak, Jacek Wiśniewski, Agata Makarewicz 
 - [missForest](https://cran.r-project.org/web/packages/missForest/index.html) - Renata Rólkiewicz, Jakub Wiśniewski, Jakub Pingielski, Paulina Przybyłek
 - [VIM](https://cran.r-project.org/web/packages/VIM/index.html) - Marceli Korbin, Patryk Wrona, Mikołaj Jakubowski
+>>>>>>> 4771f1ff0aeaf431e34b316f9b94cad4df04ad8d
 - [FHDI](https://cran.r-project.org/web/packages/FHDI/index.html)
 
 Inne pakiety R dotyczace technik imputacji można znaleźć [tutaj](https://cran.r-project.org/web/views/MissingData.html)
