@@ -23,9 +23,9 @@
 
 * 2020-04-07 - prezentacje o technikach imputacji
 
-* 2020-04-21 - praca domowa 2
+* 2020-04-21 - konsultacje
 
-* 2020-04-28 - projekt
+* 2020-04-28 - praca domowa 2
 
 * 2020-05-05 - projekt
 
