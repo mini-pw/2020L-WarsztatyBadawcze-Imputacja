@@ -1,0 +1,417 @@
+---
+title: "Pakiet mice"
+author: "Martyna Majchrzak, Agata Makarewicz, Jacek Wiśniewski"
+date: "26 03 2020"
+header-includes:
+- \titlegraphic{\centering \includegraphics[width=5cm]{mouse_emoji.png}}
+output: ioslides_presentation
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mice)
+library(knitr)
+```
+
+## Wprowadzenie
+
+MICE - Multivariate Imputation by Chained Equations
+(wielowymiarowa imputacja za pomocą równań łańcuchowych)
+
+## Wykorzystanie
+
+Pakiet mice zawiera funkcje służące do:
+
+- generowania symulowanych niekompletnych danych 
+- sprawdzenia wzorca brakujących danych
+- imputacji brakujących danych (wielokrotnie)
+- diagnozowania jakości imputowanych wartości  
+- analizy każdego uzupełnionego zbioru danych 
+- zebrania wyników powtarzanych analiz
+- przechowywania i eksportowania imputowanych danych w różnych formatach
+
+## Główne funkcje
+
+ - `ampute()`	Generowanie braków danych
+
+ - `mice()`	Imputacja brakujących danych *m* razy
+
+ - `complete()`	Eksport imputowanych danych
+
+ - `with()`	Analiza uzupełnionych zbiorów danych
+
+ - `pool()`	Łączenie szacowanych parametrów
+
+
+
+## Zbiory danych dostępne w pakiecie mice
+
+- `boys` 
+  - wzrost, waga, wiek ... duńskich chłopców
+- `brandsma` 
+  - dane o uczniach z różnych szkół
+- `pattern1,2,3,4 `
+  - proste zbiory danych z różnymi wzorcami braków danych
+
+
+## Generowanie braków danych
+
+-  funkcja `ampute`
+- generowanie brakujących danych potrzebnych do symulacji
+  - określony procent danych zostaje zastąpiony NA 
+    (obserwacje są wybierane losowo)
+  - różne mechanizmy: 
+  
+                    MAR (Missing At Random), 
+                      
+                    MCAR (Missing Completely At Random), 
+                
+                    MNAR (Missing Not At Random)
+                    
+  - określenie wzorca braków danych oraz częstotliwości 
+    jego wystąpienia
+
+
+---
+
+```{r} 
+set.seed(1)
+```
+```{r ampute, echo=TRUE,results=FALSE}
+iris_amp <- ampute(iris[,-5], prop = 0.5, mech = "MCAR")
+
+
+```
+
+## Sprawdzenie wzorca brakujących danych
+
+Więkoszość metod do rysowania wykresów nadpisuje funkcje z pakietu `lattice`.
+
+- `bwplot` 
+  - boxploty danych amputowanych i nieamputowanych
+- `md.pattern`
+  - wyświetlenie wzorca brakujących danych w formie wykresu (oraz tabeli - w konsoli)
+- `fluxplot` 
+
+---
+
+```{r bwplot, echo=TRUE,results=FALSE}
+mice::bwplot(iris_amp, which.pat = 1)
+```
+
+---
+
+```{r, echo= TRUE, fig.show='hold'}
+md.pattern(iris_amp$amp,plot = FALSE, rotate.names = TRUE)
+```
+
+---
+
+```{r, echo=TRUE, fig.height=4, fig.width=6, results='hide', fig.keep='all'}
+md.pattern(iris_amp$amp, plot = TRUE, rotate.names = TRUE)
+```
+
+## Fluxplot
+
+Dla każdej zmiennej obliczane są 2 wartości:
+
+ - Influx - liczba par zmiennych takich, że w danej jest brak a w drugiej nie, podzielona przez wszystkie obserwacje. 
+ 
+ Dane pełne: 0
+ 
+ Dane całkowicie brakujące: 1
+
+ - Outflux - liczba par zmiennych takich, że w danej jest obserwacja a w drugiej brak, podzielona przez wszystkie obserwacje. Potencjalna użyteczność do imputowania innych zmiennych.
+ 
+ Dane pełne: 1
+ 
+ Dane całkowicie brakujące: 0. 
+
+---
+
+```{r fluxplot} 
+fluxplot(iris_amp$amp)
+```
+
+
+# Imputacja danych
+
+
+## Funkcja `mice` {.smaller}
+
+Najważniejsze parametry:
+
+ - `data` - zbiór danych zawierający braki
+ 
+ - `m` - liczba imputacji (domyślnie 5)
+ 
+ - `method` - metoda imputacji
+ 
+ - `predictorMatix` - pozwala wskazać których kolumn użyć przy przewidywaniu wartości w danej kolumnie
+ 
+ - `where` - macierz binarna wskazująca gdzie imputować (domyślnie is.na(data))
+ 
+ - `defaultMethod` - określa domyślne metody stosowane dla poszczególnych typów danych
+ 
+ - `maxit` - liczba iteracji (domyślnie 5)
+
+## Parametry `m` i `maxit`
+```{r}
+imp <- mice(boys, m=3, maxit=2)
+```
+
+## Klasa `mids` - multiply imputed data set {.smaller}
+
+```{r}
+imp
+```
+
+
+## Parametr `defaultMathod`
+
+Parametr `defautMethod` funkcji mice określa domyślne metody stosowane dla poszczególnych typów danych, jeśli nie wskażemy jej wprost. Domyślnie jest to wektor:
+
+defaultMethod = c("pmm", "logreg", "polyreg", "polr")
+ 
+
+## Parametr `method`
+
+W zależności od typu brakujących danych, funkcja mice przyjmuje jako parametr inne metody imputacji danych.\
+Dane podzielone są na 4 kategorie:
+
+- dane numeryczne (ciągłe)
+- dane binarne (dane typu factor z dwoma poziomami)
+- nieuporządkowane dane kategoryczne (dane typu factor z więcej niż 2 poziomami)
+- uporządkowane dane kategoryczne (dane typu factor z więcej niż 2 poziomami uporządkowanymi)
+
+## Dowolne dane
+
+Niektóre metody imputacji możemy zastosować do każdego typu danych.
+
+- pmm (predictive mean matching) - predykcyjne dopasowanie średniej
+- midastouch (weighted predictive mean matching) 
+- sample - losowa próbka
+- cart (classification and regression trees) - drzewa klasyfikacyjne/regresji 
+- rf (random forest) - lasy losowe
+
+## Dane numeryczne 
+
+- pmm (predictive mean matching) - domyślna
+- mean - średnia
+- norm (Bayesian linear regression/regresja liniowa)
+  - norm.nob (linear regression ignoring model error)
+  - norm.boot (linear regression using bootstrap)
+  - norm.predict (linear regression, predicted values)
+- quadratic (imputation of quadratic terms)
+- ri (random indicator for nonignorable data)
+
+## Predictive Mean Matching {.smaller}
+
+Y - imputowana zmienna
+X - zbiór predykatorów (inne zmienne)
+
+1. Regresja liniowa (używamy tylko zaobserwowanych wartości X i Y)
+2. Wybieramy losowo z 'posterior predictive distribution' - rozkładu możliwych niezaobserwowanych wartości Y w zależności od zaobserowanych i tworzymy nowy zbiór współczynników.
+3. Obliczamy osobno wartości dla zaobserowanych i brakujących Y
+4. Dla każdej brakującej wartości Y, znajdujemy najbliższe (najczęściej 3) sprośród wartości dla zaobserowanych Y.
+5. Wybieramy z nich jedną - losowo.
+
+Bardzo dobre wyjaśnienie z przykładami w R:
+
+https://statisticsglobe.com/predictive-mean-matching-imputation-method/?fbclid=IwAR04-2KA9LtMObQj062QRjgbDXIpGdgHWR-gmTMmIwLrVDITwjzSVuArK1c
+
+## Zbiór danych boys {.smaller}
+
+Zbiór zawiera już braki danych, ma kolumny:
+
+ - numeryczne
+ - kategoryczne uporządkowane
+ - kategoryczne nieuporządkowane
+
+```{r comm, echo=FALSE}
+# zajmujemy sie boys bo maja ordered/unordered factor -  nie mają binarnej kolumny - do zaprezentowania imputacji na binarnej użyjemy innego zbioru 
+
+```
+```{r info, fig.height=3,fig.width=6}
+visdat::vis_dat(boys)
+```
+
+---
+
+Zaimputujemy kolumny numeryczne: 1,2,3,4,5 i 8
+
+```{r num, results='hide'}
+dutch_boys<-boys
+imp <- mice(dutch_boys[,c(1,2,3,4,5,8)],
+            method="pmm", m=3, maxit=3)
+dutch_boys[,c(1,2,3,4,5,8)] <- complete(imp)
+```
+
+
+## Metody wizualizacji danych imputowanych
+
+- densityplot 
+- stripplot
+- xyplot 
+
+---
+
+```{r com, echo=FALSE}
+## co on właściwie rysuje?
+## argumenty na.groups i groups
+```
+```{r densityplot}
+densityplot(imp)
+```
+
+---
+
+```{r}
+stripplot(imp,col=c("grey",mdc(2)),pch=c(1,20))
+```
+
+## Nieuporządkowane dane kategoryczne
+
+- polyreg (Polytomous logistic regression) - domyślna
+- lda - liniowa analiza dyskryminacyjna
+
+## Polyreg
+
+Ugólnienie regresji logistycznej dla zmiennych o więcej niż 2 poziomach.
+
+Więcej informacji:
+https://en.wikipedia.org/wiki/Multinomial_logistic_regression
+
+---
+
+Pozostała zmienna kategoryczna factor w kolumnie 9 (omijamy kolumny 6,7 innego typu, w których są jeszcze braki).
+
+```{r lda, results='hide'}
+imp <- mice(dutch_boys[,-c(6,7)], method="polyreg", m=3, maxit=3)
+dutch_boys[,-c(6,7)] <- complete(imp)
+```
+
+---
+```{r}
+xyplot(imp,reg ~ hgt+wgt,
+       cex=3,col=c("grey",mdc(2)),pch=20)
+```
+
+
+## Uporządkowane dane kategoryczne {.smaller}
+
+- polr (Proportional odds model) - domyślna
+
+Model regresji dla danych kategorycznych uporządkowanych, opierający się na logarytmach odpowiednich proporacji.
+Np jeśli zmienna ma poziomy zły < średni < dobry < bardzo dobry, mające liczność odpowiednio $p_1$,$p_2$,$p_3$,$p_4$.
+
+Logarytmy szansy, że ktoś odpowie w dany sposób wynosi:
+
+zły - $log(\frac{p_1}{p_2+p_3+p_4})$
+
+zły lub średni - $log(\frac{p_1+p_2}{p_3+p_4})$
+
+zły, średni lub dobry - $log(\frac{p_1+p_2+P_3}{p_4})$
+
+Więcej informacji: https://en.wikipedia.org/wiki/Ordered_logit
+
+---
+
+Dane kategoryczne uporządkowane znajdują się w kolumnach 6 i 7, ale wszystkie pozostałe kolumny są już uzupełnione.
+
+```{r polr, results='hide'}
+imp <- mice(dutch_boys, method="polr", m=3, maxit=3)
+dutch_boys <- complete(imp)
+```
+
+---
+
+```{r}
+xyplot(imp, gen+phb ~ hgt+wgt,
+       cex=1,col=c("grey",mdc(2)),pch=c(1,20))
+```
+
+
+## Dane binarne
+
+- logreg (logistic regression) - regresja logistyczna, domyślna
+- logreg.boot  (logistic regression with bootstrap)
+
+
+## Logistic Regression
+
+Stosowana, gdy zmienna ma tylko dwie kategorie, pozwala na obliczanie prawdopodobieństwa, że obserwacja należy do jednej z nich.
+Formalnie model regresji logistycznej jest uogólnionym modelem liniowym, w którym jako funkcji wiążącej używa się funkcji logit:
+
+$logit(p)=ln(\frac{p}{1-p})$
+
+---
+
+![](logistic.jpeg)
+
+Więcej informacji: https://pl.wikipedia.org/wiki/Regresja_logistyczna
+
+--- 
+
+```{r comment, echo=FALSE}
+# Ponieważ w zbiorze danych boys nie ma danych binarnych,
+# posłużymy się zbiorem mtcars.
+# Usuwamy tylko w tych dwóch kolumach: vs i am
+```
+```{r mtcars}
+mtcars_amp<-ampute(data=mtcars,
+                   patterns=rbind(
+                     c(1,1,1,1,1,1,1,0,1,1,1),
+                     c(1,1,1,1,1,1,1,1,0,1,1)),
+                   prop = 0.5,
+                   mech="MCAR")$amp
+mtcars_amp[,8] <- as.factor(mtcars_amp[,8])
+mtcars_amp[,9] <- as.factor(mtcars_amp[,9])
+```
+
+## {.smaller}
+
+```{r}
+kable(summary(mtcars_amp) )
+```
+
+---
+
+```{r, results='hide'}
+imp <- mice(mtcars_amp[,c(8,9)], method="logreg", m = 3, maxit = 3)
+```
+```{r}
+mtcars_amp[,c(8,9)] <- complete(imp)
+str(mtcars_amp)
+```
+
+ 
+## Zebranie wyników analiz
+
+
+- `with`
+  - dopasowanie modelu do każdego imputowanego zbioru na podstawie formuły
+
+- `pool`
+  - zebranie wyników wielokrotnej imputacji
+
+
+```{r pool, results='hide'}
+dutch_boys<-boys
+temp <- mice(dutch_boys, m = 20, maxit = 5, seed = 123)
+modelFit <- with(data=temp, 
+                 expr=lm(age ~ hgt + wgt))
+```
+
+## {.smaller}
+
+```{r}
+kable(summary(modelFit))
+```
+
+## {.smaller}
+
+```{r}
+kable(summary(pool(modelFit)))
+```
