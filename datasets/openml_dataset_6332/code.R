@@ -1,6 +1,6 @@
 # libraries
 library(OpenML)
-source('/home/elzbieta/WB/PD1/summary/create_summary_json.R')
+source('./create_summary_json.R')
 
 set.seed(123)
 source <- 'openml'
