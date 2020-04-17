@@ -1,0 +1,259 @@
+---
+title: "Package missForest"
+author: "PaRenKuKu - Paulina Przybyłek, Renata Rólkiewicz, Jakub Wiśniewski oraz Jakub Pingielski"
+date: "27 marca 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+
+library(missForest)
+library(dplyr)
+library(naniar)
+library(ggplot2)
+```
+
+## Used datasets
+
+---
+
+In the examples of using the function the following datasets were used:
+
+- ToothGrowth - length of the tooth of 60 guinea pigs depending on the delivery method of Vitamin C and the dose of vitamin C in milligrams
+- mtcars - data extracted from the 1974 Motor Trend US magazine, that comprises fuel consumption and 10 aspects of automobile design and performance for 32 automobiles
+- diamonds (ggplot2 package) -  dataset containing the prices and other attributes of almost 54,000 diamonds
+
+## Functions { .tabset }
+
+---
+
+### missForest
+
+**Description:**\
+This is the main function of this package.It is implementing the nonparametric missing values imputation using random forest. `missForest` is particularly used in the case of mixed-type data, cause it can be used to impute continuous and/or categorical data including complex interactions and nonlinear relations. It yields an out-of-bag (OOB) imputation error estimate. Moreover, it can be run parallel to save computation time.
+
+
+
+**Usage:**
+
+<pre>
+missForest(xmis,maxiter = 10,ntree = 100,variablewise = FALSE,decreasing = FALSE,verbose = FALSE,
+           mtry = floor(sqrt(ncol(xmis))),replace = TRUE,classwt = NULL,cutoff = NULL,strata = NULL,
+           sampsize = NULL,nodesize = NULL,maxnodes = NULL,xtrue = NA,
+           parallelize = c('no', 'variables', 'forests'))
+</pre>
+
+- *xmis* -  data matrix with missing values
+- *maxiter* - maximum number of iterations to be performed given the stopping criterion is not met beforehand (default=10)
+- *ntree* - number of trees to grow in each forest (default=100)
+- *variablewise* - logical. If `TRUE` the OOB error is returned for each variable separately (default=FALSE)
+- *decreasing* - logical. If `FALSE` then the variables are sorted with respect to increasing amount of missing entries during computation
+- *verbose* - logical, If `TRUE` the user is supplied with additional output between iterations
+- *mtry* - number of variables randomly sampled at each split. The default value is = floor(sqrt(ncol(xmis)))
+- *replace* - logical. If `TRUE` - bootstrap sampling (with replacements), if `FALSE` - subsampling (without replacements)
+- *classwt* - list of priors of the classes in the categorical variables. In other words - the user has to set the priors for all categorical variables in the data set (for continuous variables set it `NULL`)
+- *cutoff* - list of class cutoffs for each categorical variable (for continuous variables set it `1`)
+- *strata* - list of variables used for stratified sampling (for continuous variables set it `NULL`)
+- *sampsize* - list of size(s) of sample to draw. The user has to set the sizes for all variables
+- *nodesize* - minimum size of terminal nodes. Has to be a vector of length 2, with the first entry being the number for continuous variables and the second entry the number for categorical variables. Default is 1 for continuous and 5 for categorical variables
+- *maxnodes* - maximum number of terminal nodes for trees in the forest
+- *xtrue* - optional. Complete data matrix. This can be supplied to test the performance - the output will also contain the final true imputation error.
+- *parallelize* - should be run parallel. Default is `no`. If `variables` the data is split into pieces of the size equal to the number of cores registered in the parallel backend. If `forests` the total number of trees in each random forests is split in the same way. Which is more suitable, depends on the data
+
+**Value:**
+
+- *ximp* - imputed data matrix of same type as *xmis*
+- *OOBerror* - estimated OOB (out-of-bag) imputation error. For the set of continuous variables in ’xmis’ the NRMSE and for the set of categorical variables the proportion of falsely classified entries is returned
+- *error* - true imputation error. This is only available if *xtrue* was supplied. The error measures are the same as for *OOBerror*
+
+
+**Examples:**
+
+```{r}
+data("ToothGrowth")
+## remove 20% of the entries in the data
+data.mis <- prodNA(ToothGrowth, 0.2)
+summary(data.mis)
+```
+
+```{r}
+data.imp <- missForest(data.mis)
+```
+We can see that only iteration numbering is given. If we want to see our data after imputation and OOB error we can use `$ximp` and `$OOBerror`.
+```{r}
+head(data.imp$ximp)
+data.imp$OOBerror
+```
+
+The *ToothGrowth* data set contins two types of variables - continous and categorical. This is why OOBerror gives two values - NRMSE for cantinuous variables and PFC(Proportion of falsely classified entries) fo categorical variable.\
+If we set argument `variablewise = TRUE` then the OOBerror returns errors fir each variable separately.
+
+```{r}
+data.imp <- missForest(data.mis, variablewise = TRUE)
+```
+
+```{r}
+data.imp$OOBerror
+```
+Now output contains errors for each variable. Instead of NRMSE we have MSE for continuous variables and for categorical - again PFC.\
+\
+As mentioned before in the print-out of `missForest` showed only which iteration is taking place at the moment. In we want some additional information such as:
+
+- *estimated error(s)* - the OOB imputation error estimate for the continuous and categorical parts of the imputet data set
+- *difference(s)* - the difference between the previous and the new imputed continuous and categorical part of the data set
+- *time* - the runtime of the iteration in seconds
+- *error(s)* - true imputation error. This is only available if *xtrue* was supplied 
+
+```{r}
+set.seed(123)
+data.imp <- missForest(data.mis, verbose = TRUE)
+data.imp$OOBerror
+```
+If we add another argument - `xtrue` we will get additional information on the performece of `missForest` between iterations. Supplying `xtrue` adds the line *error(s)* to the output:
+
+``` {r}
+data.imp <- missForest(data.mis, verbose = TRUE, xtrue = ToothGrowth)
+```
+
+
+### prodNA
+
+**Description:**\
+This function introduces NA values (missing values) in a dataframe completely at random. `prodNa` needs two arguments - a dataframe where entries will be deleted up to the specified amount (ramdomly) and proportion of missing values. The function return dataframe with artificially introduced missing values.
+
+**Usage:**
+
+<pre>
+prodNA(x, noNa = 0.1) 
+</pre>
+
+- *x* - dataframe
+- *noNa* - proportion of NA values (by default - 10%)
+
+**Examples:**
+
+```{r}
+## load dataset ToothGrowth - size 60 X 3
+data("ToothGrowth")
+summary(ToothGrowth)
+## introduce 50% of missing values to the dataset
+data.mis <- prodNA(ToothGrowth, 0.5)
+summary(data.mis)
+## and now 10%
+data.mis <- prodNA(ToothGrowth)
+summary(data.mis)
+## intoduce 50% of missing values to the one column
+data.mis <- ToothGrowth
+data.mis[,1] <- prodNA(as.data.frame(data.mis[,1]), 0.5)
+summary(data.mis)
+```
+
+### mixError
+
+**Description:**\
+This function is used to calculate the imputation error particularly in the case of mixed-type data. The `mixError` computes and returns the normalized root mean squared error (NRMSE) for the continuous data and the proportion of falsely classified (PFC) entries for the categorical data. When data matix has mixed-types variables, `mixError` calculates both errors.
+
+The NRMSE is defined as:
+
+$$\sqrt{\frac{mean((X_{true} - X_{imp})^2)}{var(X_{true})}}$$
+
+**Usage:**
+
+<pre>
+mixError(ximp, xmis, xtrue)
+</pre>
+
+- *ximp* - imputed data matix with any missing values
+- *xmis* - data matrix with missing values
+- *xtrue* - original, complete data matrix with any missing values  
+
+**Examples:**
+
+```{r}
+## use dataset with mixed-types values - e.g. ToothGrowth
+## artificially introduce 10% of missing values to the dataset
+set.seed(123)
+data.mis <- prodNA(ToothGrowth)
+```
+
+```{r, echo = FALSE}
+vis_miss(data.mis, cluster = TRUE) + 
+  labs(title = "Fig.1. Data with missing values",
+       y = "Obserwations")
+```
+
+```{r, warning=FALSE}
+## impute dataset with missForest
+data.imputed <- missForest(data.mis)
+## calculate NRMSE for continuous data and PFC for categorical data
+mixError(ximp = data.imputed$ximp, xmis = data.mis, xtrue = ToothGrowth)
+```
+
+### nrmse
+
+**Description:**\
+This function is used internally by `mixError`. It computes the normalized root mean squared error (NRMSE) for a given complete data matrix, imputed data matrix and the data matrix containing missing values. Keep in mind that the NRSME can only be computed for continuous data. 
+
+**Usage:**
+
+<pre>
+nrmse(ximp, xmis, xtrue)
+</pre>
+
+- *ximp* - imputed data matix with any missing values
+- *xmis* - data matrix with missing values
+- *xtrue* - original, complete data matrix with any missing values
+
+**Examples:**
+
+```{r}
+## load dataset with only continuous values
+data("mtcars")
+## artificially introduce 20% of missing values to the dataset
+set.seed(123)
+data.mis <- prodNA(mtcars, 0.2)
+```
+
+```{r, echo = FALSE}
+vis_miss(data.mis, cluster = TRUE) + 
+  labs(title = "Fig.1. Data with missing values",
+       y = "Obserwations")
+```
+
+```{r, warning=FALSE}
+## impute dataset with missForest
+data.imputed <- missForest(data.mis)
+## compute the NRMSE
+nrmse(ximp = data.imputed$ximp, xmis = data.mis, xtrue = mtcars)
+## but nrmse is used by mixError so we can compute NRMSE with this function too
+mixError(ximp = data.imputed$ximp, xmis = data.mis, xtrue = mtcars)
+```
+
+### varClass
+
+**Description:**\
+This function returns a character vector of the variable types of a dataframe. The vector has length x where x denotes the number of columns in the dataframe. The entries are "numeric" for continuous variables and "factor" for categorical variables.
+
+**Usage:**
+
+<pre>
+varClass(x)
+</pre>
+
+- x - data frame with variables in the columns
+
+It is used internally in `missForest` and `mixError`.
+
+**Examples:**
+
+```{r}
+## load dataset with mixed-types data
+data("diamonds")
+## extract variable types of columns from dataset
+varClass(diamonds)
+## count the number of column types
+varClass(diamonds) %>% table() %>% knitr::kable(col.names = c("variable_type", "count"))
+```

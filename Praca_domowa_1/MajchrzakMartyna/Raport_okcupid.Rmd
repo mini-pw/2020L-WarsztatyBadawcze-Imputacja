@@ -1,0 +1,265 @@
+---
+title: "Warsztaty Badawcze Praca domowa 1"
+author: "Martyna Majchrzak"
+date: "16 03 2020"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(OpenML)
+library(mlr3)
+library(mlr3learners)
+library(data.table)
+library(visdat)
+library(naniar)
+library(dplyr)
+library(ggplot2)
+library(mice)
+library(ROCR)
+
+# data_okcupid<-read.csv2("./Praca_domowa_1/MajchrzakMartyna/okcupid-stem.cs
+# v",
+#                         sep=",",
+#                         na.strings = '?')
+okcupid_task_openml <- getOMLDataSet(data.id = 41278L)
+data_okcupid<-okcupid_task_openml$data
+```
+
+# Eksploracja Danych
+
+Dane zawierają informacje z profili randkowych użytkowników aplikacji OkCupid z San Francisco, 2015 rok.
+Zmienna celu opisuje, czy dany użytkownik pracuje w STEM (Science, Technology, Engineering, Mathematics), czy nie, lub też czy jest studentem.
+
+```{r}
+str(data_okcupid)
+visdat::vis_dat(data_okcupid, warn_large_data=FALSE)
+```
+
+Dane zawierają jedną kolumną, która jest typu character - last_online.
+Ponieważ ramka już i tak jest duża (21 kolumn), zdecydowałam się na całkowite usunięcie tej kolumny.
+
+```{r}
+data_okcupid<-data_okcupid[,-11]
+
+naniar::miss_var_summary(data_okcupid)
+```
+
+Najwięcej braków danych znajduje się w kolumnie income. Zobaczmy jak wygląda ich rozkład w podziale na zmienna job.
+```{r}
+
+data_okcupid %>%
+  bind_shadow() %>%
+  ggplot(aes(x = job,
+             fill = income_NA )) +
+  geom_bar()+
+  ggtitle("Jobs by income information(NA or not)")
+```
+
+Przy okazji widać, że zmienna celu job jest niezbyt zbilansowana, ale nie ma dramatu.
+
+```{r}
+naniar::gg_miss_upset(data_okcupid)
+```
+
+Wygląda na to, że braki są dosyć losowo rozmieszczone.
+
+# Podział na zbiór treningowy i testowy
+
+Za target przyjmiemy zmienną 'job', a następnie podzielimy zbiór w proporcji: treningowy 80% i testowy 20%.
+
+```{r}
+train_set<-sample(nrow(data_okcupid), 0.8 * nrow(data_okcupid))
+test_set<-setdiff(seq_len(nrow(data_okcupid)), train_set)
+data_train <- data_okcupid[train_set,]
+data_test <- data_okcupid[test_set,]
+```
+
+W kolumnach a wartościach numerycznych (age, height) znajduje się tylko jedno NA - w kolumnie height
+
+Zastosujemy teraz zastępujący proces:
+
+1. Uzupełnimy braki danych w obydwu zbiorach na pomocą 4 metod:
+
+    - usunięcie wszystkich wierszy z brakami
+    
+    - usunięcie wszystkich kolumn z brakami
+    
+    - zastąpienie braków w kolumnach kategorycznych modą, a numerycznych średnią
+    
+    W kolumnach a wartościach numerycznych (age, height) znajduje się tylko jedno NA - w kolumnie height, zatem nie będziemy rozpatrywać innych metod imputacji dla zmiennych numerycznych, gdyż tak niewielka zmiana nie wpłynie na wynik algorytmu.
+    
+2. Na każdym zbiorze wytrenujemy metodę losowego lasu decyzyjnego 'ranger'
+
+3. Ocenimy go za pomocą ...
+
+# Metoda 1 - usunięcie wierszy z NA
+
+## Imputacja
+```{r}
+data_okcupid1<-na.omit(data_okcupid)
+# train_set1<-intersect(rownames(data_okcupid1),train_set)
+# test_set1<-intersect(rownames(data_okcupid1), test_set)
+
+train_set1 <- intersect(seq_len(nrow(data_okcupid))[complete.cases(data_okcupid)], train_set)
+test_set1 <- intersect(seq_len(nrow(data_okcupid))[complete.cases(data_okcupid)], test_set)
+
+visdat::vis_dat(rbind(data_okcupid1), warn_large_data=FALSE)
+```
+
+Pozostaje 2 167 obserwacji (z oryginalnych 50 789).
+
+## Model
+
+```{r}
+#Zdefiniowanie zadania
+task_okcupid1 = mlr3::TaskClassif$new(id = "okcupid1", backend = data_okcupid, target = "job")
+
+# wybór algorytmu
+learner_okcupid1 = mlr_learners$get("classif.ranger")
+learner_okcupid1$train(task_okcupid1, row_ids = train_set1)
+# print(learner_okcupid1$model)
+
+# predykcja
+prediction_okcupid1 = learner_okcupid1$predict(task_okcupid1, row_ids = test_set1)
+# print(prediction_okcupid1)
+
+```
+
+## Wyniki
+
+```{r}
+prediction_okcupid1$confusion
+
+prediction_okcupid1$score(msr("classif.acc"))
+
+```
+
+# Metoda 2 - usunięcie kolumn z NA
+
+## Imputacja
+```{r}
+data_okcupid_2<-data_okcupid[,c(1,10,11,13,16,20)]
+train_set2<-train_set
+test_set2<-test_set
+visdat::vis_dat(data_okcupid_2, warn_large_data=FALSE)
+
+```
+
+Pozostaje 6 kolumn (z oryginalnych 20).
+
+## Model
+
+```{r}
+#Zdefiniowanie zadania
+task_okcupid2 = mlr3::TaskClassif$new(id = "okcupid2", backend = data_okcupid_2, target = "job")
+
+# wybór algorytmu
+learner_okcupid2 = mlr_learners$get("classif.ranger")
+learner_okcupid2$train(task_okcupid2, row_ids = train_set2)
+# print(learner_okcupid1$model)
+
+# predykcja
+prediction_okcupid2 = learner_okcupid2$predict(task_okcupid2, row_ids = test_set2)
+# print(prediction_okcupid2)
+```
+
+## Wyniki
+
+```{r}
+prediction_okcupid2$confusion
+
+prediction_okcupid2$score(msr("classif.acc"))
+```
+
+# Metoda 3 - w zmiennych kategorycznych moda, a numerycznych średnia
+
+```{r dominant, echo=FALSE}
+# funkcja licząca modę
+mode <- function(x){
+  x<-na.omit(x)
+  unique_values <- unique(x)
+  unique_values[which.max(tabulate(match(x, unique_values)))]
+}
+
+```
+
+## Imputacja
+
+```{r}
+data_okcupid3<-data_okcupid
+
+# zastąpienie NA w height średnią
+data_okcupid3 <- mutate(data_okcupid3, 
+                     height=ifelse(is.na(height), 
+                                   mean(na.omit(height)), 
+                                   height))
+
+# zastąpienie NA w pozostałych zmiennych modą
+
+factors_with_NAs <- unlist(lapply(data_okcupid, function(x) any(is.na(x))))
+factors_with_NAs <- names(factors_with_NAs)[factors_with_NAs]
+
+for(f in factors_with_NAs) {
+  data_okcupid3[[f]] <- ifelse(is.na(data_okcupid3[[f]]),
+                             mode(data_okcupid3[[f]]),
+                             data_okcupid3[[f]])
+
+}
+
+```
+
+## Model
+
+```{r}
+#Zdefiniowanie zadania
+task_okcupid3 = mlr3::TaskClassif$new(id = "okcupid3", backend = data_okcupid3, target = "job")
+
+# wybór algorytmu
+learner_okcupid3 = mlr_learners$get("classif.ranger")
+learner_okcupid3$train(task_okcupid3, row_ids = train_set)
+# print(learner_okcupid1$model)
+
+# predykcja
+
+prediction_okcupid3 = learner_okcupid3$predict(task_okcupid3, row_ids = test_set)
+# print(prediction_okcupid2)
+```
+
+## Wyniki
+
+```{r}
+prediction_okcupid3$confusion
+
+prediction_okcupid3$score(msr("classif.acc"))
+```
+
+# Podsumowanie
+
+Ze względu na to, że zmienna celu ma 3 poziomy (stem/non_stem/student), że możemy tu użyć poznanych na zajęciach narzędzi do oceny, bo nie wiadomo który poziom jest 'positive'. 
+Można rozważyć usunięcie do analizy obserwacji zakwalifikowanych jako 'student', jako najmniej licznej, lub połączenie kategorii stem i student.
+
+Accuracy nadal da się policzyć (suma dobrze zakwalifikowanych do pozostałych), ale dla wszystkich metod imputacji metoda losowego lasu decyzyjnego osiągnęła podobne wyniki - w granicach 0.70-0.75. 
+
+```{r}
+delete_observations<-as.numeric(prediction_okcupid1$score(msr("classif.acc")))
+delete_columns<-as.numeric(prediction_okcupid2$score(msr("classif.acc")))
+mode<-as.numeric(prediction_okcupid3$score(msr("classif.acc")))
+
+scores<-data.table(c("del_observations", "del_columns", "mode"),
+                   c(delete_observations,delete_columns, mode))
+colnames(scores)<-c("imputation_type", "score")
+
+ggplot(scores, aes(imputation_type, score))+
+  geom_col(fill="cornflowerblue")+
+  geom_text(aes(label = round(score,4)), hjust=1)+
+  ggtitle("Scores of imputation types")+
+  coord_flip()+
+  xlab("")
+
+```
