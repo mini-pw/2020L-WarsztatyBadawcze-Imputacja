@@ -43,6 +43,8 @@ for (col in to_integer) {
   df[, col] <- as.integer(df[, col])
 }
 
+dataset <- df
+
 ## create json
 file <- CreateSummary(data = df, target_column = target_column, id = openml_id, data_name = 'cylinder-bands', source = 'openml', added_by = 'ejowik')
 write(file, 'dataset.json')
