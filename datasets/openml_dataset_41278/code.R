@@ -1,7 +1,7 @@
 # libraries
 library(OpenML)
 library(dplyr)
-source('C:/Users/marty/OneDrive/Dokumenty/WarsztatyBadawcze/2020L-WarsztatyBadawcze-Imputacja/skrypty/create_summary_json.R')
+source('create_summary_json.R')
 
 # config
 set.seed(1)
@@ -32,5 +32,5 @@ dataset <- dataset_raw
 
 ## create json
 
-CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'woznicak')
-
+file <- CreateSummary(data = dataset, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'MaroonBlue')
+write(file, 'dataset.json')
