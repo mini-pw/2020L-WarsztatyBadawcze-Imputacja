@@ -43,6 +43,6 @@ for (i in zmienne){
 dataset <- dataset_raw
 ## create json
 summary_1<- CreateSummary(data = dataset_raw, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'jjanborowka')
-write_json(summary_1,'./dataset.json')
+write(summary_1,'./dataset.json')
 
 
