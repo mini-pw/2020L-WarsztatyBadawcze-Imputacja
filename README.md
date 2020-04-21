@@ -86,7 +86,7 @@ Dla dotychczas zgromadzonych zbiorów danych dotyczących klasyfikacji [datasets
 Dla każdego uzupełnionego zbioru danych należy dopasować jeden algorytm uczenia maszynowego i ocenić jakość predykcyjną modelu (warto rozważyć różne miary). 
 Przy analizie wyników warto zwrócić uwagę na czas potrzebny do imputacji danych.
 
-Na podstawie otrzymanych wyników trzeba przygotować krótki raport (po angielsku), który będzie miał strukturę końcowego artykułu (wstęp, opis metodologii i wyników). Najbardziej skupcie się na opisie metodologii. Na zajęciach każdy zespół powinien zaprezentować 10 min podsumowanie.
+Na podstawie otrzymanych wyników trzeba przygotować krótki raport (po angielsku), który będzie miał strukturę końcowego artykułu (wstęp, opis metodologii i wyników). **Najbardziej skupcie się na opisie metodologii**. Na zajęciach każdy zespół powinien zaprezentować 10 min podsumowanie.
 
 **Ocena:** 50% - raport, 50% - ilość przeanalizowanych zbiorów danych.
 
