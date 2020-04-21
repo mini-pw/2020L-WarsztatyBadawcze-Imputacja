@@ -108,5 +108,49 @@ Rezultatem prac powinien być krótki artykuł naukowy (40 pkt.), minimum 3 stro
 Projekt nalezy zaprezentować w postaci Lightning Talka na jednym z ostatnich wykładów (15 pkt.).
 
 
+Mamy już repozytorium z [ebookiem](https://github.com/mini-pw/2020L-WB-Book), w którym będziemy umieszczać artykuły. 
+Podrozdział powinien zawierać autorów oraz deskryptywny tytuł, odpowiadający temu o czym chcielibyście napisać. Jeśli w trakcie wykonywania projektu zmieni się koncepcja, to tytuł oczywiście można potem zmienić.
+
+
+
+#### Jak dodać swój rozdział?
+
+Książka będzie służyć do artykułów wszystkich grup robiących Warsztaty Badawcze I i Warsztaty Badawcze II. Z tego powodu podzielona jest na 3 rozdziały, **drugi** z nich odpowiada naszym projektom o imputacji.
+
+- Pliki zaczynające się od 1-0, 2-0, 3-0 to wstępy do rozdziałów, które uzupełnię ja i pozostałe prowadzące.
+
+- Pliki zaczynające się od 2-1. 2-2, 2-3, ... to podrozdziały, które powinny odpowiadać grupom. Przykładowy plik to `1-1-example-article.Rmd`. Na jego podstawie stwórzcie Wasze pliki z podrozdziałami. Taki plik powinien zawierać co najmniej tytuł i autorów. Mile widziany jest też szkielet artykułu, czyli nagłówki (mogą być identyczne jak w pliku z przykładem). Sam artykuł polecam pisać w czystym Markdownie, nie trzeba używać żadnych komend z R.
+
+- Istotne jest, że najwyższy stopień nagłówka w plikach z artykułami to ##, dzięki temu będą one podrozdziałami dla pliku `1-0-reproducibility.Rmd` gdzie jest nagłówek wyżej, czyli z jednym #. Przy pull requestach, proszę, pilnujcie zagnieżdżeń tych nagłówków, żeby nam się struktura nie rozjechała :).
+
+- Robiąc pull request z pracą domową zacznijcie jego nazwę od IMP. Dzięki temu łatwiej mi będzie wyłapywać PR dotyczce naszego projektu. **W PR powinien zostać dodany tylko jeden plik `.Rmd`, bez renderowania książki na nowo.**
+
+
+#### Jak lokalnie podejrzeć czy rozdział dobrze się renderuje?
+
+Książka utworzona jest pakietem R `bookdown` i tym też pakietem można ją wyrenderować. 
+W tym celu trzeba:
+
+1) Sklonować lub pobrać repozytorium https://github.com/mini-pw/2020L-WB-Book 
+
+2) Zainstalować zależności
+
+```
+devtools::install_dev_deps()
+```
+
+3) Wyrenderować książkę do HTML
+```
+bookdown::render_book('./', 'bookdown::gitbook')
+```
+Pliki z książką znajdują się w folderze docs, żeby ją podejrzeć można otworzyć plik `docs/index.html`
+
+Lub do PDF
+```
+bookdown::render_book('./', 'bookdown::pdf_book')
+```
+
+
+
 ## Blog (15 pkt.)
 Informacje w [repzytorium Wykładu](https://github.com/mini-pw/2020L-WarsztatyBadawcze)
