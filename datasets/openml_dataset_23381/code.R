@@ -1,6 +1,6 @@
 # libraries
 library(OpenML)
-source('Pulpit/wb_zaraz_dodam/create_summary_json.R')
+source('./create_summary_json.R')
 
 # config
 set.seed(1)
@@ -40,8 +40,9 @@ for (i in zmienne){
   dataset_raw[,i] <- as.factor(dataset_raw[,i])
 }
 
+dataset <- dataset_raw
 ## create json
 summary_1<- CreateSummary(data = dataset_raw, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'jjanborowka')
-write_json(summary_1,'Pulpit/wb_zaraz_dodam/dresses_sales.json')
+write(summary_1,'./dataset.json')
 
 
