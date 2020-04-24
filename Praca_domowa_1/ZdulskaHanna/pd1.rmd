@@ -181,7 +181,7 @@ Dane uzupełnimy w następujący sposób:
  * usunięcie kolumn z brakującymi wartościmi 
  * usunięcie wierszy z brakującymi wartościmi
  * zastępienie Educational_level modą lub oznaczenie jako "?"
- * zastąpienie Prestige_score średnią, medianą lub próbką
+ * zastąpienie Prestige_score średnią (=38.9346), medianą(=37) lub próbką
  
 ```{r}
 df_remove_columns <- dane[, -which(colnames(dane) %in% c("Educational_level", "Prestige_score"))]
@@ -192,8 +192,14 @@ df_pytajnik <- dane
 df_pytajnik$Educational_level[is.na(df_pytajnik$Educational_level)] <- "?"
 
 df_pytajnik_mean <- mice(df_pytajnik, method = "mean", m = 1, maxit = 1)
+
+# mean(Prestige_score) = 38.9346
+
 df_pytajnik_sample <- mice(df_pytajnik, method = "sample", m = 1, maxit = 1)
 med <- median(df_pytajnik$Prestige_score, na.rm = T)
+
+# median(Prestige_score) = 37
+
 df_pytajnik_median <- df_pytajnik
 df_pytajnik_median$Prestige_score[is.na(df_pytajnik_median$Prestige_score)] <- med
 

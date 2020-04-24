@@ -2,14 +2,18 @@
 title: "Warsztaty badawcze 2020 - pd 1"
 author: "Jakub Kosterna"
 date: "3/3/2020"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    theme: united
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# 1. Wybór zbioru danych
+# 1. Wybór zbioru danych i przygotowanie środowiska
 
 Za cel pierwszej pracy domowej wziąłem sobie analizę zbioru **Speed Dating** (i tak samo moja decyzja była bardzo szybka - no hej, przede mną wspaniała podróż po świecie relacji damsko-męskich, czy to nie fascynujące?). Jak sama nazwa wskazuje dotyczy on danych zebranych na podstawie tak zwanych "szybkich randek". Informacje zostały zebrane podczas spotkań w latach 2002-2004 i oparte były na 4-minutowych "pierwszych randkach" z płcią przeciwną. Uczestnicy po każdej z nich byli pytani o zainteresowanie zobaczeniem potencjalnej drugiej połówki ponownie, a także mieli za zadanie ocenić ją pod kątem sześciu kryteriów:
 
@@ -22,13 +26,23 @@ Za cel pierwszej pracy domowej wziąłem sobie analizę zbioru **Speed Dating** 
 
 Zbiór znalazłem pod Id 146607 - co ciekawe o największym numerze spośród 100 zaproponowanych.
 
+Przygotujmy potrzebne pakiety, a także wczytajmy nasz zbiór.
+
 ```{r odczyt, cache = TRUE, warning = FALSE, message = FALSE}
 # install.packages("OpenML") # if not installed
 library(OpenML)
-# install.packages("dplyr") # if not installed
-library(dplyr)
 # install.packages("DataExplorer") # if not installed
 library(DataExplorer)
+# install.packages("naniar") # if not installed
+library(naniar)
+# install.packages("visdat") # if not installed
+library(visdat)
+# install.packages("ggplot2") # if not installed
+library(ggplot2)
+# install.packages("mice") # if not installed
+library(mice)
+# install.packages("dplyr") # if not installed
+library(dplyr)
 task.ids <- getOMLStudy('OpenML100')$tasks$task.id
 task <- getOMLTask(146607)
 data <- as.data.frame(task)
@@ -51,35 +65,47 @@ Dokładne informacje o kolumnach znalazłem na: https://www.openml.org/d/40536
 
 Pozostawimy sobie:
 
-* gender: Gender of self
-* age: Age of self
-* age_o: Age of partner
-* d_age: Difference in age
-* attractive_o: Rating by partner (about me) at night of event on attractiveness
-* attractive: Rate yourself - attractiveness
-* attractive_partner: Rate your partner - attractiveness
-* intelligence_o: Rating by partner (about me) at night of event on intelligence
-* intelligence: Rate yourself - intelligence
-* intelligence_partner: Rate your partner - intelligence
-* decision: Decision at night of event.
-* decision_o: Decision of partner at night of event.
-* match: Match (yes/no)
+* gender: płeć [male / female]
+* age: wiek uczestnika
+* age_o: wiek partnera
+* samerace: czy partner jest tej samej rasy [0 / 1]
+* d_age: różnica wieku
+* attractive_o: ocena atrakcyjności według partnera [1-10]
+* attractive: własna ocena atrakcyjności [1-10]
+* attractive_partner: ocena atrakcyjności partnera [1-10]
+* intelligence_o: ocena inteligencji według partnera [1-10]
+* intelligence: ocena własnej inteligencji [1-10]
+* intelligence_partner: ocena inteligencja partnera [1-10]
+* funny_o: ocena poczucia humoru według partnera [1-10]
+* funny: ocena własnego poczucia humoru [1-10]
+* funny_partner: ocena poczucia humoru partnera [1-10]
+* ambitous_o: ocena bycia ambitnym według partnera [1-10]
+* ambition: ocena własnego bycia ambitnym [1-10]
+* ambition_partner: ocena bycia ambitnym partnera [1-10]
+* sinsere_o: ocena szczerości według partnera [1-10]
+* sincere: ocena własnej szczerości [1-10]
+* sincere_partner: ocena szczerości partnera [1-10]
+* decision: decyzja uczestnika [1 - jestem na tak / 0 - jestem na nie]
+* decision_o: decyzja partnera [1 - jest na tak / 0 - jest na nie]
+* match: efekt niezależnego głosowania pary [1 - obie osoby na tak, 0 - wpp]
 
 Obróbmy dane i zobaczmy wynik wybierając dwadzieścia losowych wierszy.
 
 ```{r obrobka, cache = TRUE}
-data <- data %>% select(gender, age, age_o, d_age, attractive_o, attractive, attractive_partner,
-                 intelligence_o, intelligence, intelligence_partner, decision, decision_o, match)
-colnames(data) <- c("gender", "age", "age_o", "d_age", "attr_o", "attr", "attr_p",
-                    "intel_o", "intel", "intel_p", "decision", "decision_o", "match")
+data <- data %>% select(gender, age, age_o, samerace, d_age, attractive_o, attractive, attractive_partner,
+                 intelligence_o, intelligence, intelligence_partner, funny_o, funny, funny_partner,
+                 ambitous_o, ambition, ambition_partner, sinsere_o, sincere, sincere_partner,
+                 decision, decision_o, match)
+colnames(data) <- c("gender", "age", "age_o", "samerace", "d_age", "attr_o", "attr", "attr_p",
+                    "intel_o", "intel", "intel_p", "funny_o", "funny", "funny_p",
+                    "amb_o", "amb", "amb_p", "sinc_o", "sinc", "sinc_p",
+                    "decision", "decision_o", "match")
 set.seed(124)
 knitr::kable(sample_n(data, 20))
 ```
 
 O kurczę pieczone!
 Wygląda na to, że społeczność *speed dating* przynajmniej w tej grupie w latach 2002-2004 jest średnio zgodna. Na ową wylosowaną dwudziestkę piątkę tylko 4 matche i 9 nieodwzajemnionych polubień.
-
-\newpage
 
 Przy okazji mamy styczność z pewnym brakiem danych, który przy surowym zbiorze może spowodować konsternację - nie wszyscy uczestnicy zabawy podali swój wiek, a jak pokazuje chociażby pierwszy wiersz, różnica wieku jest wtedy wyliczana jako informacja o wieku osoby już go posiadającego. Jak jest w przypadku dwóch niewiadomych wartości w tym temacie - nie mam pojęcia. Ale zmodyfikujmy data frame tak, żeby dla przynajmniej jednego niewiadomego wieku także i kolumnie *d_age* przypisywał NA.
 
@@ -98,34 +124,29 @@ No i elegancko, szafa gra!
 
 # 3. Braki danych i ogólne wnioski
 
-Zweryfikujmy zbiór pod kątem braków danych.
+Zobaczmy z jakimi danymi mamy do czynienia w naszym zbiorze.
 
-```{r braki_1, cache = TRUE}
-# install.packages("naniar") # if not installed
-library(naniar)
-# install.packages("visdat") # if not installed
-library(visdat)
-library(ggplot2)
-library(dplyr)
-# install.packages("mice") # if not installed
-library(mice)
-knitr::kable(summary(data[1:7]))
+```{r szybki_oglad, cache = TRUE, message = FALSE}
+knitr::kable(summary(data[1:8]))
+knitr::kable(summary(data[9:17]))
+knitr::kable(summary(data[18:23]))
 ```
 
-```{r braki_2, cache = TRUE}
-knitr::kable(summary(data[8:13]))
+Najciekawsze wnioski?
+
+1. Dane dotyczą przybliżonej liczby mężczyzn i kobiet. Są tu głównie 20-kilkulatkowie.
+2. Najtrudniej uczestnikom ocenić było bycie ambitnym szybkiej-partnerki (szybkiego-partnera), najłatwiej zaś cechy dotyczących samych siebie - około 99% dało radę (patrząc na liczbę wartości NA).
+3. Przeciętna różnica wieku randkowiczów to około 3-4 lata.
+4. Uczestnicy raczej dowartościowani - średnio ocenili swoją atrakcyjność o jeden punkt wyżej niż atrakcyjność drugiego uczestnika randki, a swoją inteligencję o niecałe 0,5 punkta lepiej.
+5. Speed-datingowcy **przeceniają swoje poczucie humoru**! Ich własna ocena to około 8,5 punkta, zaś średnia osobnika płci przeciwnej - 6,5.
+6. Ogólnie **ludzie uważają się za lepszych od innych**.
+
+```{r braki_danych, cache = TRUE}
 vis_dat(data)
 vis_miss(data)
 ```
 
-Jak widzimy braki danych występują w kolumnach dotyczących wieku i oceny atrakcyjności oraz inteligencji (swojej lub partnera). Są jednak kompletne informacje w temacie płci, a także decyzji co do chęci na następne spotkanie.
-
-Najciekawsze wnioski?
-
-1. Dane dotyczą przybliżonej liczby mężczyzn i kobiet. Są tu głównie 20-kilkulatkowie
-2. Najtrudniej uczestnikom ocenić było inteligencję szybkiej-partnerki (szybkiego-partnera), najłatwiej zaś swoją atrakcyjność (patrząc na liczbę wartości NA)
-3. Przeciętna różnica wieku randkowiczów to około 3-4 lata
-4. Uczestnicy raczej dowartościowani - średnio ocenili swoją atrakcyjność o jeden punkt wyżej niż atrakcyjność drugiego uczestnika randki, a swoją inteligencję o niecałe 0,5 punkta lepiej
+Jak widzimy braki danych występują w kolumnach wieku oraz ocen [jakichkolwiek, zarówno swoich i partnera], generalnie we wszystkich liczbowych nie ma całości. Są jednak kompletne informacje w temacie płci, a także decyzji co do chęci na następne spotkanie.
 
 Zweryfikujmy jeszcze liczbę nieodwzajemnionych "polubień" i wszystkich matchy.
 
@@ -134,13 +155,9 @@ likes <- as.integer(data$decision) + as.integer(data$decision_o) - 2
 knitr::kable(prop.table(table(likes)))
 ```
 
-\newpage
-
 No i mamy jeszcze jeden wniosek...
 
-5. Tylko co szósta para jednogłośnie ogłosiła chęć kolejnego spotkania. Co ciekawe **aż połowa werdyktów to nieodwzajemnione polubienia**, a tylko około 1/3 randkowiczów zgodnie stwierdziła, że nie ma co dalej marnować czasu.
-
-Co ciekawe okazuje się tu także [choć bez zaskoczeń], że wnioskowanie z ledwo 20-wierszowej losowo wygenerowanej podramki może być bardzo mylące - tak można by pomyśleć, że dalej umawia się nie co 6., ale co 20. para, zaś polubień jednostronnych jest nie połowa, a aż 3 na 4. Nie dajmy się zwieść!
+7. Tylko co szósta para jednogłośnie ogłosiła chęć kolejnego spotkania. Co ciekawe **aż połowa werdyktów to nieodwzajemnione polubienia**, a tylko około 1/3 randkowiczów zgodnie stwierdziła, że nie ma co dalej marnować czasu.
 
 Wiemy już na czym stoimy w ogólnym stopniu. Skorzystajmy z narzędzi nauczonych na laboratoriach 2 w celu zdobycia jeszcze większej ilości przydatnych informacji o brakach danych w naszym Speed-datingowym zbiorze.
 
@@ -151,71 +168,42 @@ gg_miss_var(data,
   ylim(0, 100)
 ```
 
-Tak oto otrzymaliśmy ładną wizualizację ilości braków danych dla kolejnych kolumn. Jak widać w każdym wypadku jest to maksymalnie kilka procent - możemy więc stąd wstępnie pomyśleć, że olanie wierszy je zawierających lub ich modyfikacja nie powinna wpłynąć bardzo na istotę zbioru.
+Tak oto otrzymaliśmy ładną wizualizację ilości braków danych dla kolejnych kolumn. Jak widać niemalże w każdym wypadku jest to maksymalnie kilka procent - jedynym wyjątkiem jest ocena ambicji partnera, której nieobecność sięga prawie 10% wszystkich danych. Czyżbyśmy mogli wstępnie pomyśleć, że olanie wierszy zawierających jakiekolwiek NA lub ich modyfikacja nie powinny wpłynąć bardzo na istotę zbioru?
 
-Ładną prezentację możemy także otrzymać dzięki pakietowi **DataExplorer**.
+Ładną prezentację możemy także otrzymać dzięki pakietowi *DataExplorer*.
 
 ```{r data_explorer, cache = TRUE}
 plot_missing(data)
 ```
 
-Znając konkretne liczby możemy się spodziewać, że dla tak rzadkich braków nie powinniśmy się otrzymać dużych rożnic w analizie zależności od tego, co z nimi zrobimy.
+Znając konkretne liczby możemy się spodziewać, że dla tak rzadkich braków nie powinniśmy się obawiać dużych rożnic w analizie zależności od tego, co z nimi zrobimy.
 
-Jak widać mimo rzadkich braków, jedynie w pełni pozostają kolumny dotyczące płci, decyzji i informacji o sparowaniu. Takie dane to w gruncie rzeczy nic ciekawego, dlatego w kolejnych krokach nie będę sprawdzał efektów dla usunięcia kolumn zawierających jakiekolwiek brakujące informacje.
+Jak widać mimo rzadkich braków, jedynie w pełni pozostają kolumny dotyczące płci, decyzji i informacji o sparowaniu. Takie dane to w gruncie rzeczy nic ciekawego. W kolejnych krokach rozważę cztery ramki danych z:
 
-\newpage
+1. usuniętymi wierszami zawierającymi jakiekolwiek wartości NA
+2. NA zastąpionymi średnimi
+3. NA zastąpionymi losowymi wartościami z kolumn z których podmieniam
+4. usuniętymi kolumnami mającymi ponad 5% braków danych [*amb_p* i *amb_o*] i zastąpionymi średnimi
 
-# 4. Wizualizacje i wnioski suchych danych z NA (usunięte wiersze i kolumny)
+# 4. Wizualizacje wybranych zależności i wnioski z różnych sposobów impotacji
+
+## 4.1. Przygotowanie pomocniczych ramek danych.
+
+Zanim rozpoczniemy, przygojmy ramki danych na których będziemy użytkować.
+
+### 4.1.1. no_na_rows - usunięcie wierszy zawierających jakiekolwiek NA
 
 Usuńmy brakujące wartości.
 
 ```{r usun_braki, cache = TRUE}
-data_no_na <- na.omit(data)
-print(paste("Usunietych wierszy:", nrow(data) - nrow(data_no_na)))
-print(paste("Procent usunitych wierszy:", round((nrow(data) - nrow(data_no_na)) / nrow(data) * 100, 2), "%"))
+no_na_rows <- na.omit(data)
+print(paste("Usunietych wierszy:", nrow(data) - nrow(no_na_rows)))
+print(paste("Procent usunietych wierszy:", round((nrow(data) - nrow(no_na_rows)) / nrow(data) * 100, 2), "%"))
 ```
 
+Tracimy 1/5 danych - umówmy się, to już jednak trochę jest. No cóż...
 
-## 4.1. Ocena potencjalnej drugiej połówki a różnica wieku
-
-
-```{r suche_1, cache = TRUE}
-ggplot(data_no_na, 
-       aes(x = d_age, 
-           y = attr_p)) +   
-  geom_smooth()
-```
-
-
-O proszę! Jak można się spodziewać, zbliżony wiek sprzyja lepszej ocenie. Ciekawie robi się od około 8 lat w góre, gdzie do różnicy wieku ~18 lat ocena atrakcyjności wzrasta, a potem maleje. Jeżeli przybliżenie poprzez *geom_smooth* na niezbyt dużym zbiorze danych można brać na poważnie.
-
-
-## 4.2. Inteligencja i atrakcyjność partnera a decyzja
-
-```{r suche_2, cache = TRUE}
-g1 <- ggplot(data_no_na, aes(x = decision, y = attr_p)) +
-  geom_boxplot()
-g2 <- ggplot(data_no_na, aes(x = decision, y = intel_p)) +
-  geom_boxplot()
-library(gridExtra)
-grid.arrange(g1, g2, ncol=2)
-```
-
-Mediana ocen speed-partnerów uznanych za godnych następnego spotkania jest niemalże równa trzeciemu kwantylowi niewybranych. Dotyczy to zarówno inteligencji jak i atrakcyjności. Co ciekawe, uczestnicy zdecydowanie lepiej ocenili inteligencję niż atrakcyjność swoich randkowiczów - wykres skrzynkowy inteligencji niewybranych partnerów jest niemalże identyczny do boxplota wybranych biorąc pod uwagę atrakcyjność.
-
-Okazuje się jednak, że o wiele bardziej istotna jest atrakcyjność niż inteligencja w kwestii chęci przyjścia na następną randkę - różnica mediany dla atrakcyjności ogólnej wyniosła około dwa punkty, zaś dla inteligencji - niecały jeden.
-
-## 4.3. Różnica wieku i płeć a matche
-
-```{r suche_3, cache = TRUE, message = FALSE}
-ggplot(data_no_na, aes(x = age, color = match)) +
-  geom_density() +
-  facet_wrap(~gender, ncol = 1)
-```
-
-Zarówno kobiety jak i mężczyźni najczęściej na match mogą liczyć w wieku lat 25. Najczęściej odpychane są 23-latki i 33-latki, a także 32-33-latkowie. Czemu 30-paro-latkowie mają takie problemy z dogadaniem się? Tego nie wiem, acz intryguje.
-
-# 5. Wizualizacje i wnioski pustych danych zastąpionych średnimi
+### 4.1.2. means - NA zastąpione średnimi
 
 Zastąpmy średnimi.
 
@@ -226,53 +214,10 @@ imp <- mice(data, method = "mean", m = 1, maxit = 1)
 Wypełnijmy naszą nową ramkę danych.
 
 ```{r kompletna_srednia, cache = TRUE, message = FALSE}
-data_mean <- complete(imp)
+means <- complete(imp)
 ```
 
-## 5.1. Ocena potencjalnej drugiej połówki a różnica wieku
-
-```{r srednia_1, cache = TRUE, message = FALSE}
-ggplot(data_mean, 
-       aes(x = d_age, 
-           y = attr_p)) +   
-  geom_smooth()
-```
-
-Bez widocznych zmian - zastąpienie średnimi nie wpłynęło na efekt.
-
-## 5.2. Inteligencja i atrakcyjność partnera a decyzja
-
-```{r srednia_2, cache = TRUE, message = FALSE}
-g1 <- ggplot(data_mean, aes(x = decision, y = attr_p)) +
-  geom_boxplot()
-g2 <- ggplot(data_mean, aes(x = decision, y = intel_p)) +
-  geom_boxplot()
-grid.arrange(g1, g2, ncol=2)
-```
-
-Mediana oceny atrakcyjności partnera się zmieniła - wzrosła z 5 aż do 6!
-
-Uśrednienie zaburzyło nam efekt i różnice między postrzeganą inteligencją a ogólną atrakcyjnością wydają się być teraz mniejsze - błędnie.
-
-## 5.3. Różnica wieku i płeć a matche
-
-```{r srednia_3, cache = TRUE, message = FALSE}
-ggplot(data_mean, aes(x = age, color = match)) +
-  geom_density() +
-  facet_wrap(~gender, ncol = 1)
-```
-
-Nie widać istotnych różnic.
-
-## 5.4. Zastępowanie średnimi ogólnie
-
-```{r srednia_4, cache = TRUE, message = FALSE}
-densityplot(imp)
-```
-
-Ze względu na małą liczbę braków danych zastąpienie ich średnimi nie wpłynęło istotnie na wynik naszej analizy i wniosków z niej płynących. Można więc strzelać, że parę procent braków na każdą kolumnę to w praktyce żadna strata.
-
-# 6. Wizualizacje i wnioski pustych danych zastąpionych losowymi
+### 4.1.3. randoms - NA zastąpione losowymi z kolumn
 
 Zastąpmy brakujące wartości losowymi z naszej próbki.
 
@@ -283,80 +228,254 @@ imp2 <- mice(data, method = "sample", m = 1, maxit = 1)
 Wypełnijmy naszą nową ramkę danych.
 
 ```{r kompletna_losowa, cache = TRUE, message = FALSE}
-data_sample <- complete(imp2)
+randoms <- complete(imp2)
 ```
 
-## 6.1. Ocena potencjalnej drugiej połówki a różnica wieku
+### 4.1.4. means_no_ambs - means ale z usuniętymi kolumnami o liczbie NA >5%
 
-```{r losowa_1, cache = TRUE, message = FALSE}
-ggplot(data_sample, 
-       aes(x = d_age, 
-           y = attr_p)) +   
-  geom_smooth()
+```{r usun_amb_kolumny, cache = TRUE, message = FALSE}
+means_no_ambs <- means %>%
+  select(-c(amb, amb_p))
 ```
 
-Bez widocznych zmian - zastąpienie losowymi nie wpłynęło na efekt.
+## 4.2. Wizualizacje
 
-## 6.2. Inteligencja i atrakcyjność partnera a decyzja
+### 4.2.1. Ocena potencjalnej drugiej połówki a różnica wieku
 
-```{r losowa_2, cache = TRUE, message = FALSE}
-g1 <- ggplot(data_sample, aes(x = decision, y = attr_p)) +
-  geom_boxplot()
-g2 <- ggplot(data_sample, aes(x = decision, y = intel_p)) +
-  geom_boxplot()
-grid.arrange(g1, g2, ncol=2)
+```{r wykresy_1, cache = TRUE, message = FALSE}
+g1 <- ggplot(no_na_rows, aes(x = d_age, y = attr_p)) +
+  geom_smooth() +
+  ggtitle("no_na_rows") +
+  theme_bw()
+
+g2 <- ggplot(means, aes(x = d_age, y = attr_p)) + 
+  geom_smooth() +
+  ggtitle("means") +
+  theme_bw()
+
+g3 <- ggplot(randoms, aes(x = d_age, y = attr_p)) +
+  geom_smooth() +
+  ggtitle("randoms") +
+  theme_bw()
+
+g4 <- ggplot(means_no_ambs, aes(x = d_age, y = attr_p)) +   
+  geom_smooth() +
+  ggtitle("means_no_ambs") +
+  theme_bw()
+
+grid.arrange(g1, g2, g3, g4, ncol = 2, top = "Attractiveness of partner by difference of age")
 ```
 
-Sytuacja jak dla wzięcia średniej zamiast pustych danych - mediana postrzeganej atrakcyjności wzrosła.
+O proszę! Już dla pierwszej lepszej zależności widzimy duże różnice
 
-## 6.3. Różnica wieku i płeć a matche
+Najbardziej chyba odstaje przypadek usunięcia prawie 1/5 wierszy, czyli tam, gdzie pozbyliśmy się tych zawierających jakiekolwiek braki. Tam dane mówią jasno - im większa różnica wieku, tym ocena atrakcyjności gorsza.
 
-```{r losowa_3, cache = TRUE, message = FALSE}
-ggplot(data_sample, aes(x = age, color = match)) +
+Pozostałe są już raczej zbliżone - dla pierwszych kilku lat wraz z różnicą wieku atrakcyjność maleje, natomiast ciekawa rzecz dzieje się od około 8 wiosen między partnerami - od tego momentu aż do około 15 (a dla wykresu wypełnionego losowymi aż do 20!) wraz z wiekiem przeciętna ocena wzrasta, a potem znowu spada.
+
+### 4.2.2. Cechy partnera a decyzja
+
+```{r wykresy_2, cache = TRUE}
+g1_1 <- ggplot(no_na_rows, aes(x = decision, y = attr_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g1_2 <- ggplot(no_na_rows, aes(x = decision, y = intel_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g1_3 <- ggplot(no_na_rows, aes(x = decision, y = funny_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g1_4 <- ggplot(no_na_rows, aes(x = decision, y = amb_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g1 <- grid.arrange(g1_1, g1_2, g1_3, g1_4, ncol=2, top = "no_na_rows")
+
+g2_1 <- ggplot(means, aes(x = decision, y = attr_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g2_2 <- ggplot(means, aes(x = decision, y = intel_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g2_3 <- ggplot(means, aes(x = decision, y = funny_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g2_4 <- ggplot(means, aes(x = decision, y = amb_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g2 <- grid.arrange(g2_1, g2_2, g2_3, g2_4, ncol=2, top = "means")
+
+g3_1 <- ggplot(randoms, aes(x = decision, y = attr_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g3_2 <- ggplot(randoms, aes(x = decision, y = intel_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g3_3 <- ggplot(randoms, aes(x = decision, y = funny_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g3_4 <- ggplot(randoms, aes(x = decision, y = amb_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g3 <- grid.arrange(g3_1, g3_2, g3_3, g3_4, ncol=2, top = "randoms")
+
+g4_1 <- ggplot(means_no_ambs, aes(x = decision, y = attr_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g4_2 <- ggplot(means_no_ambs, aes(x = decision, y = intel_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g4_3 <- ggplot(means_no_ambs, aes(x = decision, y = funny_p)) +
+  geom_boxplot() +
+  theme_dark() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+g4 <- grid.arrange(g4_1, g4_2, g4_3, ncol=2, top = "means_no_ambs")
+
+grid.arrange(g1, g2, g3, g4, ncol = 2, top = "Parner ratings by decision")
+```
+
+Tutaj niezależnie od zbioru danych efekty są w miarę podobne - najbardziej w oczy rzuca się chyba zejście mediany oceny atrakcyjności partnera niechcianego z 6 do 5 dla ramki z usuniętymi wierszami z NA - czyli chyba można wnioskować, że partner nam się bardziej podoba <-> więcej o nim powiemy.
+
+Co ciekawe, mediana ocen speed-partnerów uznanych za godnych następnego spotkania jest niemalże równa trzeciemu kwantylowi niewybranych. Dotyczy to zarówno inteligencji, atrakcyjności jak i poczucia humoru [wyjątek stanowi ocena ambicji]. Co ciekawe, uczestnicy zdecydowanie lepiej ocenili inteligencję niż atrakcyjność swoich randkowiczów - wykresy skrzynkowe inteligencji niewybranych partnerów są niemalże identyczne jak boxploty wybranych biorąc pod uwagę atrakcyjność.
+
+### 4.2.3. Różnica wieku i płeć a matche
+
+```{r wykresy_3, cache = TRUE, message = FALSE}
+g1 <- ggplot(no_na_rows, aes(x = age, color = match)) +
   geom_density() +
-  facet_wrap(~gender, ncol = 1)
+  facet_wrap(~gender, ncol = 1) +
+  xlab("no_na_rows") +
+  theme_light()
+
+g2 <- ggplot(means, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1) +
+  xlab("means") +
+  theme_light()
+
+g3 <- ggplot(randoms, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1) +
+  xlab("randoms") +
+  theme_light()
+
+g4 <- ggplot(means_no_ambs, aes(x = age, color = match)) +
+  geom_density() +
+  facet_wrap(~gender, ncol = 1) +
+  xlab("means_no_ambs") +
+  theme_light()
+
+grid.arrange(g1, g2, g3, g4, ncol = 2, top = "Match by difference of age and sex")
 ```
 
-Nie widać istotnych różnic.
+Niezależnie od zbioru, zarówno kobiety jak i mężczyźni najczęściej na match mogą liczyć w wieku lat 25. Najczęściej odpychane są 23-latki i 33-latki, a także 32-33-latkowie. Czemu 30-paro-latkowie mają takie problemy z dogadaniem się? Tego nie wiem, acz intryguje.
 
-## 6.4. Zastępowanie losowymi ogólnie
+## 4.3. Wnioski z wykresów
 
-```{r losowa_4, cache = TRUE, message = FALSE}
-densityplot(imp2)
-```
+Ze względu na małą liczbę braków danych zastąpienie ich średnimi nie wpłynęło istotnie na wynik naszej analizy i wniosków z niej płynących. Można więc strzelać, że parę procent braków na każdą kolumnę to w praktyce żadna strata.
 
 Zastąpienie brakujących danych losowymi wartościami poskutkowało jeszcze bardziej zbliżonymi wykresami gęstości niż zastępowanie ich średnimi. Niby z matematycznego punktu widzenia ma to sens (patrz: Prawa Wielkich Liczb) i zbiorcze wyniki dla całej populacji często dla takiej modyfikacji zapewne są bardziej zbliżone do rzeczywistości niż uśredniane, takie dane można wyrzucić do kosza patrząc na jednostki - konkretnym Jankom i Aniom przypisujemy informacje zupełnie bez ładu i składu, tożto nonsens.
 
-# 7. Podsumowanie oglądu danych według różnych sposobów radzenia sobie z brakami
+Generalnie trudno jednoznacznie stwierdzić która imputacja jest lepsza, a która gorsza - to już nam chyba pokaże algorytm uczenia maszynowego i weryfikacja jego efektu na tych czterech ramkach.
 
 Biorąc pod uwagę małą liczbę braków, niezależnie od usunięcia wierszy zawierających wartości NA, zastępowanie brakujących wartości średnimi czy zamienianie ich na losowe z odpowiadajej jej kolumny, nie wpłynęło na ogólną analizę danych jako na zbiorczy twór - przynajmniej na pierwszy rzut oka. Można wysnuć wniosek, że zastępowanie liczbami losowymi globalnie daje efekt bardziej zbliżony do rzeczywistości, lecz zamienianie na średnie mniej burzy obraz jednostek.
 
-# 8. Algorytm uczenia maszynowego
+## 4.4. Porównanie macierzy korelacji
 
-## 8.1. Wprowadzenie
+Mamy takie super narzędzie, to i z niego skorzystajmy.
 
-Zbiorami danych, na których wytrenujemy nasz algorytm będą te utworzone w rodziałach 4., 5. i 6.:
+```{r korelacje, cache = TRUE, warning = FALSE, message = FALSE}
+# install.packages("corrplot") # if not installed
+library(corrplot)
+# install.packages("corrgram") # if not installed
+library(corrgram)
+corrplot(corrgram(data), method="circle")
+corrplot(corrgram(no_na_rows), method="circle")
+corrplot(corrgram(means), method="circle")
+corrplot(corrgram(randoms), method="circle")
+corrplot(corrgram(means_no_ambs), method="circle")
+```
 
-1. *data_no_na* - z usuniętymi wierszami posiadającymi wartości NA
-2. *data_mean* - z wartościami brakującymi zastąpionymi średnimi
-3. *data_sample* - z NA zamienionymi na losowe z odpowiadających kolumn
+Wykresy korelacji są do siebie w miarę zbliżone - kolejny sygnał predykujący, że dla tak małej ilości braków danych sposób ich wypełnienia nie powinien robić ogromnej różnicy.
 
-Cechami niech będą kolumny: *gender*, *age*, *age_o*, *d_age*, *attr_0*, *attr*, *attr_p*, *intel_o*, *intel* i *intel_p* a klasą - *match*.
+Najbardziej skorelowane są ocena inteligencji i poczucia humoru - i jak najbardziej ma to sens, bo chyba każdy z nas wielokrotnie słyszał, że inteligencja jest z byciem zabawnym mocno powiązana.
 
-Można by także dokonać ciekawej klasyfikacji trenując nasz algorytm pod prognozowanie *decision* lub *decision_o* - zdecydowałem się jednak na *match*, ponieważ to on odpowiada za finalny efekt i najważniejszy wynik randki, a przy tym na swój sposób ma "pod sobą" dwa wspomniane.
+Ogólnie mocno skorelowane są oceny cech, zwłaszcza atrakcyjność i inteligencja - bez zaskoczeń.
+
+# 5. Algorytm uczenia maszynowego
+
+## 5.1. Wprowadzenie
+
+Zbiorami danych, na których wytrenujemy nasz algorytm będą te utworzone w poprzednim rozdziale:
+
+1. *no_na_rows* - z usuniętymi wierszami posiadającymi wartości NA
+2. *means* - z wartościami brakującymi zastąpionymi średnimi
+3. *randoms* - z NA zamienionymi na losowe z odpowiadających kolumn
+4. *means_no_ambs* - *means* ale z usuniętymi kolumnami mającymi ilość braków >5%
+
+Klasą niech będzie *match* a cechami - wszystkie kolumny za wyjątkiem *decision* i *decision_o* - wszystkie składają się na to co myślimy o partnerze lub jak on nas postrzega, tylko jedynie te dwie ostatnia są złożeniem naszej klasy.
+
+Oczywiście można by także dokonać ciekawej klasyfikacji trenując nasz algorytm pod prognozowanie *decision* lub *decision_o* - zdecydowałem się jednak na *match*, ponieważ to on odpowiada za finalny efekt i najważniejszy wynik randki, a przy tym na swój sposób ma "pod sobą" dwa wspomniane.
 
 Mamy tutaj styczność z typową **klasyfikacją binarną**.
 
 ```{r uczenie_wprowadzenie, cache = TRUE}
-cechy <- colnames(data_no_na)[1:10]
-klasa <- colnames(data_no_na)[13]
+colnames(data)
+cechy <- colnames(data)[1:20]
+klasa <- colnames(data)[23]
+cechy_no_ambs <- colnames(means_no_ambs)[1:18]
+klasa_no_ambs <- colnames(means_no_ambs)[21]
 
 p <- length(cechy)
-n_no <- nrow(data_no_na) # liczba wierszy w wariancie usuwania tych z NA
-n <- nrow(data_mean) # liczba wierwszy w wariancie zastępowania brakujących
+n_no <- nrow(no_na_rows) # liczba wierszy w wariancie usuwania tych z NA
+n <- nrow(means) # liczba wierwszy w wariancie zastępowania brakujących
 ```
 
-## 8.2. Podział na zbiór testowy i treningowy
+## 5.2. Podział na zbiór testowy i treningowy
+
+Zrobię to w chyba najbardziej standardowy sposób - losowe 20% idzie na zbiór testowy, a pozostałe - na treningowy.
 
 ```{r podzial, cache = TRUE}
 set.seed(123)
@@ -364,87 +483,197 @@ set.seed(123)
 id_train_n <- sample(1:n, 4/5 * n)
 id_train_n_no <- sample(1:n_no, 4/5 * n_no)
 
-df_train_no_na <- data_no_na[id_train_n_no, c(cechy, klasa)]
-df_train_sample <- data_sample[id_train_n, c(cechy, klasa)]
-df_train_mean <- data_mean[id_train_n, c(cechy, klasa)]
+train_no_rows <- no_na_rows[id_train_n_no, c(cechy, klasa)]
+train_means <- means[id_train_n, c(cechy, klasa)]
+train_samples <- randoms[id_train_n, c(cechy, klasa)]
+train_means_no_ambs <- means_no_ambs[id_train_n, c(cechy_no_ambs, klasa_no_ambs)]
 
 id_test_n <- (1:n)[-id_train_n]
-id_test_n_no <- (1:n_no)[id_train_n_no]
+id_test_n_no <- (1:n_no)[-id_train_n_no]
 
-df_test_no_na <- data_no_na[id_test_n_no, c(cechy, klasa)]
-df_test_sample <- data_sample[id_test_n_no, c(cechy, klasa)]
-df_test_mean <- data_mean[id_test_n, c(cechy, klasa)]
+test_no_rows <- no_na_rows[id_test_n_no, c(cechy, klasa)]
+test_means <- means[id_test_n, c(cechy, klasa)]
+test_samples <- randoms[id_test_n, c(cechy, klasa)]
+test_means_no_ambs <- means_no_ambs[id_test_n, c(cechy_no_ambs, klasa_no_ambs)]
 ```
 
-Dzięki takim samym wylosowanym indeksowym treningowym, będziemy mogli porównać wyniki dla *data_sample* i *data_mean* dla tych samych wierszach. Operacja będzie niestety niemożliwa dla *data_no_na* ze względu na inną wielkość analizowanych wartości.
+Dzięki takim samym wylosowanym indeksowym treningowym, będziemy mogli porównać wyniki dla *means*, *samples* i *means_no_ambs* dla tych samych wierszy. Operacja będzie niestety niemożliwa dla *no_na_rows* ze względu na inną wielkość analizowanych wartości.
 
-## 8.3. Klasyfikacja z pomocą drzewa klasyfikacyjnego
+## 5.3. Klasyfikacja z pomocą drzewa klasyfikacyjnego
 
 No nie powiem, urzekły mnie te wesołe binarne cosie z labów trzecich.
 
-Przetwórzmy najpierw dla ramki z usuniętymi wierszami zawierającymi NA.
+### 5.3.1. Usunięte wiersze z NA
 
-```{r klasyfikacja_no_na, cache = TRUE}
+```{r klasyfikacja_no_na_rows, cache = TRUE}
 # install.packages("rpart") # if not installed
 library(rpart)
-tree_classifier_no_na <- rpart(match~., data = df_train_no_na)
+tree_classifier_no_rows <- rpart(match~., data = train_no_rows)
 par(mar = c(1,1,1,1))
 par(xpd = TRUE)
 
 # install.packages("rattle") # if not installed
 library(rattle)
-fancyRpartPlot(tree_classifier_no_na, caption = NULL)
+fancyRpartPlot(tree_classifier_no_rows, caption = NULL)
 
-predict(tree_classifier_no_na, newdata = df_test_no_na[,cechy], type="class")[1:20]
-predict(tree_classifier_no_na, newdata = df_test_no_na[,cechy], type="prob")[1:20]
+predict(tree_classifier_no_rows, newdata = test_no_rows[,cechy], type="class")[1:20]
+predict(tree_classifier_no_rows, newdata = test_no_rows[,cechy], type="prob")[1:20]
 
-tree_classifier_parameter_change_no_na <- rpart(match~., data=df_test_no_na,
+tree_classifier_parameter_change_no_na <- rpart(match~., data=test_no_rows,
   parms = list(split = 'information'), 
   minsplit = 10,
   cp = 0.01)
 fancyRpartPlot(tree_classifier_parameter_change_no_na, caption = NULL)
 ```
 
-O proszę! Wychodzi na to, że algorytm stwierdził, że to jednak atrakcyjność ma kluczową wartość - o wiele większą niż inteligencja. Sprawdźmy jeszcze efekt dla dwóch pozostałych utworzonych ramek.
+O proszę! Wychodzi na to, że algorytm stwierdził, że to jednak atrakcyjność ma kluczową wartość - z góry odrzucamy wszystkich tych poniżej 7 / 10. Samemu powinniśmy też zostać ocenieni na +8 / 10 w temacie poczucia humoru, w innym wypadku out.
 
-```{r klasyfikacja_sample, cache = TRUE}
-tree_classifier_sample <- rpart(match~., data = df_train_sample)
+Dalej mamy cztery ścieżki:
+1. Nie zostaliśmy ocenieni na zbytnio atrakcyjnych (poniżej 8 / 10), ale sami uważamy siebie za 10 / 10 (???),
+2. Jak wyżej w kwestii oceny atrakcyjności przez drugą osobę, do tego mamy realistyczne mniemanie o sobie w tym temacie (nie 10 / 10) i uważamy siebie za osoby ambitne przynajmniej na 6 / 10 (???),
+3. W oczach partnera mamy przynajmniej te 8 / 10, dodatkowo partner jest zabawny na +5 / 10 i nasza ambicja została oceniona na 10 / 10 (???),
+4. Nasza ambicja nie została oceniona tak wysoka, ale ambicja partnera już na 10 / 10.
+Jak dla mnie kompletnie randomowo to wygląda. Ale skoro tak mówi sztuczna inteligencja...
+
+### 5.3.2. NA uzupełnione średnimi
+
+```{r klasyfikacja_means, cache = TRUE}
+tree_classifier_means <- rpart(match~., data = train_means)
 par(mar = c(1,1,1,1))
 par(xpd = TRUE)
 
-fancyRpartPlot(tree_classifier_sample, caption = NULL)
+fancyRpartPlot(tree_classifier_means, caption = NULL)
 
-predict(tree_classifier_sample, newdata = df_test_sample[,cechy], type="class")[1:20]
-predict(tree_classifier_sample, newdata = df_test_sample[,cechy], type="prob")[1:20]
+predict(tree_classifier_means, newdata = test_means[,cechy], type = "class")[1:20]
+predict(tree_classifier_means, newdata = test_means[,cechy], type = "prob")[1:20]
 
-tree_classifier_parameter_change_sample <- rpart(match~., data=df_test_sample,
+tree_classifier_parameter_change_means <- rpart(match~., data=test_means,
   parms = list(split = 'information'), 
   minsplit = 10,
   cp = 0.01)
-fancyRpartPlot(tree_classifier_parameter_change_sample, caption = NULL)
+fancyRpartPlot(tree_classifier_parameter_change_means, caption = NULL)
 ```
 
-Dla wylosowanych wartości "wymagania" na match w liczbach wzrosły, ale w praktyce tylko pozornie - wciąż na porozumienie według drzewek mogą liczyć tylko ci o ocenie własnej atrakcyjności i swojego partnera równej przynajmniej 8.
+Tu już chyba prościej i wydawało by się o wiele sensowniej. Dla matcha według tego modelu obowiązkowe będzie aby:
 
-A jak będzie wyglądał wynik dla uśrednionych liczb?
+1. Ocena zabawności partnera wynosiła +7 / 10,
+2. Jego zdanie o naszej atrakcyjności +8 / 10,
+3. Nasz pogląd o jego atrakcyjności +7 / 10,
+4. Wiek partnera minimum 26 lat.
 
-```{r klasyfikacja_mean, cache = TRUE}
-tree_classifier_mean <- rpart(match~., data = df_train_mean)
+Poza tymi czterema ścieżkami albo musimy ocenić partnera na 10 / 10 w kwestii jego ambicji, albo trochę mniej, ale jego szczerość ma być minimum 8 / 10.
+
+Interesujące jak tutaj pod uwagę zaczął być brany wiek partnera i przynajmniej w minimalnym stopniu ocena jego szczerości (w rzadkich przypadkach).
+
+W ten model prędzej uwierzę!
+
+### 5.3.3. NA uzupełnione losowymi
+
+```{r klasyfikacja_randoms, cache = TRUE}
+tree_classifier_samples <- rpart(match~., data = train_samples)
 par(mar = c(1,1,1,1))
 par(xpd = TRUE)
 
-fancyRpartPlot(tree_classifier_mean, caption = NULL)
+fancyRpartPlot(tree_classifier_samples, caption = NULL)
 
-predict(tree_classifier_mean, newdata = df_test_mean[,cechy], type="class")[1:20]
-predict(tree_classifier_mean, newdata = df_test_mean[,cechy], type="prob")[1:20]
+predict(tree_classifier_samples, newdata = test_samples[,cechy], type = "class")[1:20]
+predict(tree_classifier_samples, newdata = test_samples[,cechy], type = "prob")[1:20]
 
-tree_classifier_parameter_change_mean <- rpart(match~., data=df_test_mean,
+tree_classifier_parameter_change_samples <- rpart(match~., data=test_samples,
   parms = list(split = 'information'), 
   minsplit = 10,
   cp = 0.01)
-fancyRpartPlot(tree_classifier_parameter_change_mean, caption = NULL)
+fancyRpartPlot(tree_classifier_parameter_change_samples, caption = NULL)
 ```
 
-Niesamowite! Nagle dodatkowym "warunkiem"... stał się wiek partnera przynajmniej 26 lat.
+Kolejne niebanalne drzewko z poczuciem humoru i zabawnością na czele a także z elementami istotności wieku.
 
-Podsumowując metoda drzewa klasyfikacyjnego wydaje się być mocno taka sobie - z zaproponowanych 10 cech wzięła pod uwagę tylko dwie, a w przypadku uzupełnienia braków danych średnimi wartościami - trzy z nich. Wynik jest bardzo ogólny i mało satysfakcjonujący.
+Co musi zostać spełnione?
+
+1. Twoja atrakcyjność oceniona +8 / 10,
+2. Zabawność partnera +7 / 10,
+3. Jego atrakcyjność +7 / 10.
+
+Oprócz  tego jedna ze ścieżek:
+1. Wiek partnera przynajmniej 27 lat i różnica wieku między 5 a 7 lat,
+2. Jego wiek mniej niż 27, ale Twój przynajmniej 30 - potem albo ocena Twojej atrakcyjności według partnera minimum 9 / 10 albo twoja trochę gorsza, zaś jego poczucie humoru twoim zdaniem 10 / 10.
+
+Ciekawe i nie głupie.
+
+Godny uwagi fakt, że żadne z tych drzewek w żadnym rozgałęzieniu nie daje matchy osobnikom mającym czegokolwiek mniej [w kwestii oceny].
+
+### 5.3.4. NA uzupełnione średnimi z usuniętymi kolumnami o brakach >5%
+
+```{r klasyfikacja_means_no_ambs, cache = TRUE}
+tree_classifier_means_no_ambs <- rpart(match~., data = train_means_no_ambs)
+par(mar = c(1,1,1,1))
+par(xpd = TRUE)
+
+fancyRpartPlot(tree_classifier_means_no_ambs, caption = NULL)
+
+predict(tree_classifier_means_no_ambs, newdata = test_means_no_ambs[,cechy_no_ambs], type = "class")[1:20]
+predict(tree_classifier_means_no_ambs, newdata = test_means_no_ambs[,cechy_no_ambs], type = "prob")[1:20]
+
+tree_classifier_parameter_change_samples <- rpart(match~., data=test_means_no_ambs,
+  parms = list(split = 'information'), 
+  minsplit = 10,
+  cp = 0.01)
+fancyRpartPlot(tree_classifier_means_no_ambs, caption = NULL)
+```
+
+Atrakcyjność i poczucie humoru - tyle w temacie.
+
+## 5.4. Porównanie modeli predykcyjnych
+
+Kluczowe dla oceny według drzew klasyfikacyjnych są atrakcyjność i poczucie humoru, rzadziej wiek, szczerość czy ambicje. **Rasa w żadnym momencie nie zadecydowała**.
+
+A teraz chwila prawdy - zobaczmy jakiemu procentowi par na podstawie ich danych i atrybutów sztuczna inteligencja dobrze przewidzi wspólną przyszłość [przynajmniej niedaleką].
+
+```{r poprawnosci, cache = TRUE}
+tree_classifier_test_prediction_class_no_rows <- predict(tree_classifier_no_rows, newdata = test_no_rows, type = 'class')
+
+type_of_error <- ifelse(test_no_rows$match=='0' & tree_classifier_test_prediction_class_no_rows == '0', "TN",
+                      ifelse(test_no_rows$match=='0' & tree_classifier_test_prediction_class_no_rows=='1', "FP",
+                       ifelse(test_no_rows$match=='1' & tree_classifier_test_prediction_class_no_rows=='0', "FN", "TP")))
+
+(conf.val <- table(type_of_error))
+accuracy_no_na <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print(paste0("Skutecznosc dla usunietych wierszy z NA: ", accuracy_no_na))
+
+
+tree_classifier_test_prediction_class_means <- predict(tree_classifier_means, newdata = test_means, type = 'class')
+
+type_of_error <- ifelse(test_means$match=='0' & tree_classifier_test_prediction_class_means == '0', "TN",
+                      ifelse(test_means$match=='0' & tree_classifier_test_prediction_class_means=='1', "FP",
+                       ifelse(test_means$match=='1' & tree_classifier_test_prediction_class_means=='0', "FN", "TP")))
+
+(conf.val <- table(type_of_error))
+accuracy_means <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print(paste0("Skutecznosc dla NA zastapionych srednimi: ", accuracy_means))
+
+
+tree_classifier_test_prediction_class_samples <- predict(tree_classifier_samples, newdata = test_samples, type = 'class')
+
+type_of_error <- ifelse(test_samples$match=='0' & tree_classifier_test_prediction_class_samples == '0', "TN",
+                      ifelse(test_samples$match=='0' & tree_classifier_test_prediction_class_samples=='1', "FP",
+                       ifelse(test_samples$match=='1' & tree_classifier_test_prediction_class_samples=='0', "FN", "TP")))
+
+(conf.val <- table(type_of_error))
+accuracy_samples <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print(paste0("Skutecznosc dla NA zastapionych losowymi: ", accuracy_samples))
+
+
+tree_classifier_test_prediction_class_means_no_ambs <- predict(tree_classifier_means_no_ambs, newdata = test_means_no_ambs, type = 'class')
+
+type_of_error <- ifelse(test_means_no_ambs$match=='0' & tree_classifier_test_prediction_class_means_no_ambs == '0', "TN",
+                      ifelse(test_means_no_ambs$match=='0' & tree_classifier_test_prediction_class_means_no_ambs=='1', "FP",
+                       ifelse(test_means_no_ambs$match=='1' & tree_classifier_test_prediction_class_means_no_ambs=='0', "FN", "TP")))
+
+(conf.val <- table(type_of_error))
+accuracy_means_no_ambs <- (conf.val['TP']+conf.val['TN'])/sum(conf.val)
+print(paste0("Skutecznosc dla NA zastapianymi srednimi i usunietymi kolumnami o NA >5%: ", accuracy_means_no_ambs))
+```
+
+## 5.5. Podsumowanie
+
+Ku mojemu zdziwieniu, wyniki działania drzew losowych wyszły niemalże takie same - wszystkie cztery wahają się między 83,8% a 84,5% - to niecały procent dla czterech jakby nie patrzeć jednak różnych ramek danych! Co to w praktyce oznacza? Mając szczegółowe dane o ocenie dwójki ludzi w skali 1-10, a także ich podstawowe informacje jesteśmy w stanie z prawdopodobieństwem 5 / 6 stwierdzić czy się dogadają. Czy możemy więc stwierdzić że metoda drzewa klasyfikującego zdała egzamin? Moim zdaniem **absolutnie nie**. W końcu około 83,5% osób nie dostaje matcha... co oznacza, że **poprawiliśmy wyniki kwalifikatora "wszystko na nie" o niecały jeden procent**. Cóż, przynajmniej schemaciki ładne.
