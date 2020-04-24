@@ -1,0 +1,18 @@
+{
+  "id": 327,
+  "added_by": "MaroonBlue",
+  "data_name": "bridges",
+  "source": "openml",
+  "target": "TYPE",
+  "number_of_instances": 105,
+  "number_of_features": 12,
+  "number_of_numeric_features": 3,
+  "number_of_categorical_features": 9,
+  "number_of_missings": 61,
+  "number_of_instances_with_missings": 35,
+  "number_of_features_with_missings": 7,
+  "number_of_numeric_features_with_missings": 2,
+  "numeric_features_with_missings": ["LENGTH", "LANES"],
+  "number_of_categorical_features_with_missings": 5,
+  "categorical_features_with_missings": ["LOCATION", "CLEAR.G", "T.OR.D", "SPAN", "REL.L"]
+}
