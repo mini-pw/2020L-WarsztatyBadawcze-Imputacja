@@ -23,9 +23,9 @@
 
 * 2020-04-07 - prezentacje o technikach imputacji
 
-* 2020-04-21 - praca domowa 2
+* 2020-04-21 - konsultacje
 
-* 2020-04-28 - projekt
+* 2020-04-28 - praca domowa 2
 
 * 2020-05-05 - projekt
 
@@ -43,6 +43,7 @@
 
 
 Należy przygotować prezentację o wybranej pakiecie do imputacji danych. Prezentacje należy wykonać w grupach, najlepiej grupach projektowych. Oprócz krótkiej prezentacji z wprowadzeniem do technik użytych w danym pakiecie należy przygotować krótki skrypt z przykładem użycia pakietu. Propozycje pakietów:
+
 - [Amelia](https://cran.r-project.org/web/packages/Amelia/index.html) - Jan Borowski, Piotr Fic, Filip Chszuszcz
 - [softImpute](https://cran.r-project.org/web/packages/softImpute/index.html) - Hanna Zdulska, Dawid Przybyliński, Jakub Kosterna
 - [missMDA](https://cran.r-project.org/web/packages/missMDA/index.html) - Mateusz Grzyb, Elżbieta Jowik, Ada Gąssowska
@@ -85,7 +86,7 @@ Dla dotychczas zgromadzonych zbiorów danych dotyczących klasyfikacji [datasets
 Dla każdego uzupełnionego zbioru danych należy dopasować jeden algorytm uczenia maszynowego i ocenić jakość predykcyjną modelu (warto rozważyć różne miary). 
 Przy analizie wyników warto zwrócić uwagę na czas potrzebny do imputacji danych.
 
-Na podstawie otrzymanych wyników trzeba przygotować krótki raport (najlepiej po angielsku), który będzie zawierał opis metodologii i podsumowanie wyników. Na zajęciach każdy zespół powinien zaprezentować 10 min podsumowanie.
+Na podstawie otrzymanych wyników trzeba przygotować krótki raport (po angielsku), który będzie miał strukturę końcowego artykułu (wstęp, opis metodologii i wyników). **Najbardziej skupcie się na opisie metodologii**. Na zajęciach każdy zespół powinien zaprezentować 10 min podsumowanie.
 
 **Ocena:** 50% - raport, 50% - ilość przeanalizowanych zbiorów danych.
 
@@ -105,6 +106,50 @@ Rezultatem prac powinien być krótki artykuł naukowy (40 pkt.), minimum 3 stro
 * Wnioski: 10 pkt.
 
 Projekt nalezy zaprezentować w postaci Lightning Talka na jednym z ostatnich wykładów (15 pkt.).
+
+
+Mamy już repozytorium z [ebookiem](https://github.com/mini-pw/2020L-WB-Book), w którym będziemy umieszczać artykuły. 
+Podrozdział powinien zawierać autorów oraz deskryptywny tytuł, odpowiadający temu o czym chcielibyście napisać. Jeśli w trakcie wykonywania projektu zmieni się koncepcja, to tytuł oczywiście można potem zmienić.
+
+
+
+#### Jak dodać swój rozdział?
+
+Książka będzie służyć do artykułów wszystkich grup robiących Warsztaty Badawcze I i Warsztaty Badawcze II. Z tego powodu podzielona jest na 3 rozdziały, **drugi** z nich odpowiada naszym projektom o imputacji.
+
+- Pliki zaczynające się od 1-0, 2-0, 3-0 to wstępy do rozdziałów, które uzupełnię ja i pozostałe prowadzące.
+
+- Pliki zaczynające się od 2-1. 2-2, 2-3, ... to podrozdziały, które powinny odpowiadać grupom. Przykładowy plik to `1-1-example-article.Rmd`. Na jego podstawie stwórzcie Wasze pliki z podrozdziałami. Taki plik powinien zawierać co najmniej tytuł i autorów. Mile widziany jest też szkielet artykułu, czyli nagłówki (mogą być identyczne jak w pliku z przykładem). Sam artykuł polecam pisać w czystym Markdownie, nie trzeba używać żadnych komend z R.
+
+- Istotne jest, że najwyższy stopień nagłówka w plikach z artykułami to ##, dzięki temu będą one podrozdziałami dla pliku `1-0-reproducibility.Rmd` gdzie jest nagłówek wyżej, czyli z jednym #. Przy pull requestach, proszę, pilnujcie zagnieżdżeń tych nagłówków, żeby nam się struktura nie rozjechała :).
+
+- Robiąc pull request z pracą domową zacznijcie jego nazwę od IMP. Dzięki temu łatwiej mi będzie wyłapywać PR dotyczce naszego projektu. **W PR powinien zostać dodany tylko jeden plik `.Rmd`, bez renderowania książki na nowo.**
+
+
+#### Jak lokalnie podejrzeć czy rozdział dobrze się renderuje?
+
+Książka utworzona jest pakietem R `bookdown` i tym też pakietem można ją wyrenderować. 
+W tym celu trzeba:
+
+1) Sklonować lub pobrać repozytorium https://github.com/mini-pw/2020L-WB-Book 
+
+2) Zainstalować zależności
+
+```
+devtools::install_dev_deps()
+```
+
+3) Wyrenderować książkę do HTML
+```
+bookdown::render_book('./', 'bookdown::gitbook')
+```
+Pliki z książką znajdują się w folderze docs, żeby ją podejrzeć można otworzyć plik `docs/index.html`
+
+Lub do PDF
+```
+bookdown::render_book('./', 'bookdown::pdf_book')
+```
+
 
 
 ## Blog (15 pkt.)
