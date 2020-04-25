@@ -27,7 +27,3 @@ dataset <- dataset_raw
 summary_1<- CreateSummary(data = dataset_raw, target_column = target_column, id = openml_id, data_name = data_name, source = 'openml', added_by = 'jjanborowka')
 write(summary_1,'./dataset.json')
 
-
-
-vis_dat(dataset_raw)
-
