@@ -1,1 +1,18 @@
-["{\n  \"id\": 23381,\n  \"added_by\": \"jjanborowka\",\n  \"data_name\": \"dresses-sales\",\n  \"source\": \"openml\",\n  \"target\": \"Class\",\n  \"number_of_instances\": 500,\n  \"number_of_features\": 13,\n  \"number_of_numeric_features\": 1,\n  \"number_of_categorical_features\": 12,\n  \"number_of_missings\": 955,\n  \"number_of_instances_with_missings\": 425,\n  \"number_of_features_with_missings\": 10,\n  \"number_of_numeric_features_with_missings\": 1,\n  \"numeric_features_with_missings\": \"Rating\",\n  \"number_of_categorical_features_with_missings\": 9,\n  \"categorical_features_with_missings\": [\"Price\", \"Season\", \"NeckLine\", \"SleeveLength\", \"waiseline\", \"Material\", \"FabricType\", \"Decoration\", \"Pattern\"]\n}"]
+{
+  "id": 23381,
+  "added_by": "jjanborowka",
+  "data_name": "dresses-sales",
+  "source": "openml",
+  "target": "Class",
+  "number_of_instances": 500,
+  "number_of_features": 13,
+  "number_of_numeric_features": 1,
+  "number_of_categorical_features": 12,
+  "number_of_missings": 955,
+  "number_of_instances_with_missings": 425,
+  "number_of_features_with_missings": 10,
+  "number_of_numeric_features_with_missings": 1,
+  "numeric_features_with_missings": "Rating",
+  "number_of_categorical_features_with_missings": 9,
+  "categorical_features_with_missings": ["Price", "Season", "NeckLine", "SleeveLength", "waiseline", "Material", "FabricType", "Decoration", "Pattern"]
+}

@@ -50,6 +50,8 @@ colnames(df) <- c("Sex",
                     "Income",
                     "class")
 
+dataset <- df
+
 # doing summary with create json
 json_summary <- CreateSummary(data=df, target_column=target_column, id=openml_id, data_name=data_name, source='openml', added_by='jakwisn')
 write(json_summary, 'dataset.json')
