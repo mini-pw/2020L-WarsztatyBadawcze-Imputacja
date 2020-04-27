@@ -1,6 +1,6 @@
 ---
 title: "The imputation methods big test"
-author: "Jakub Kosterna, Dawid PrzybyliĹ„ski & Hanna Zdulska"
+author: "Jakub Kosterna, Dawid Przybyliński & Hanna Zdulska"
 date: "22/04/2020"
 output:
   html_document:
@@ -883,30 +883,33 @@ grid.arrange(accuracyPlot, precisionPlot,
 
 I think we will all agree now - in terms of results, at least looking at these six datasets for which each imputation was successful, we can create such a podium:
 
-1. *mice*
-2. *remove_rows*
-3. *miss_forest*
-4. *median* (!)
-5. *VIM*
+1. *VIM* / *missForest* (judging by our need - for *accuracy* and *precision* - *VIM*, for *recall* - *missForest*)
+3. *median*
+4. *remove_rows*
+5. *mice*
 
-Of course, the results are not very representative, given the small number of datasets for which they were compared - but always something.
+Of course, the results are not very representative, given the small number of datasets for which they were compared - but still something.
 
 ## Imputation time and its results
 
-1. Wykres po zbiorach: średnich czasów imputacji a średnich wyników miar.
+We collected and summarized both results and imputation times in our collections. What are the average imputation times and the measures' medians of our imputations?
 
-2. Wnioski z tego wykresu. Czy są imputacji i lepsze i szybsze? Czy są i wolniejsze i gorsze? PYTANIE: jaki wykres, w jakiej formie?
+```{r imputation_times_measures_medians, cache = TRUE}
+medians_measures_times <- correct_measures_measures %>% select(imputation_names, accMedians, preMedians, recMedians, f1sMedians)
+medians_measures_times <- cbind(medians_measures_times, imputation_times_measures_fullimp$medians)
+colnames(medians_measures_times) <- c("imputation name", "accuracy", "precision", "recall", "f1", "imputation mean time")
+knitr::kable(medians_measures_times, content = "Mean imputation time and mean model result's measures of imp methods")
+```
 
-## (Opcjonalnie) Imputation time by size of datasets
+Looking at the results, *VIM* and *missForest* give quite similar numbers in terms of satisfaction, but VIM is much faster - for data sets for which each imputation has passed, it managed in six times shorter period of time than *missForest* (and also of course much worse *mice*). The question is how much we are interested in time - it turns out that for very large data sets our model will not suffer much if we take the median instead of these two. At this point, you can probably make a correction of the ranking:
 
-1. Opcjonalnie: facet
-x - id zbioru, y - czas imputacji, z - procent braków
-kategoryczny, ciągły, ciągły
-
-2. Opcjonalnie: facet
-x - id zbioru, y - czas imputacji, z - wielkość zbioru
-kategoryczny, ciągły, ciągły
+1. *VIM*
+2. *median* / *missForest* (depending on how important time is for us)
+...
+4. *remove_rows*
+...
+5. *mice*
 
 ## Conclusion
 
-TODO: 1. Podsumowanie i wnioski
+The experiment can be considered successful when it comes to the datasets and tools made available to us - calculated measures, visualizations made, as well as conclusions led us, among others, to the intuition that probably *VIM* is really a very good package, supplementing the missing values with medians from columns is not at all is such a stupid idea as it may seem, and *mice* can be thrown in the bin. Unfortunately, it is impossible to draw a wise conclusion based on such a small number of tested data - admittedly as many as 14 sets, problems with imputations on some of them or too small dataframes not giving a satisfactory answer and assumptions that respectful statistics would praise. Nevertheless, above code is certainly very valuable and for more data sets it could confirm one or another belief - therefore we can probably say that we have achieved scientific success!
