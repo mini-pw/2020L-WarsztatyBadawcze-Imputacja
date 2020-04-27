@@ -1,10 +1,11 @@
 ---
 title: "The imputation methods big test"
-author: "Jakub Kosterna, Dawid Przybyliński & Hanna Zdulska"
+author: "Jakub Kosterna, Dawid PrzybyliĹ„ski & Hanna Zdulska"
 date: "22/04/2020"
 output:
   html_document:
     code_folding: hide
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -688,26 +689,215 @@ grid.arrange(accPlot +
 
 Looking only at these plots, it is difficult to come up with something at first glance - for each time I come to some conclusion, results for a few other datasets that I did not pay attention to deny it. For sure we can already say that the scatter of results is rather large and analyzing the measures of concentration, we probably will not clearly indicate the best or the worst imputation.
 
-###############################
+Visualizations often help and ever give answers to the questions, but this time the best option will be definetely to calculate some measures. What means, medians and standard deviations give these measures?
 
-TODO:
-3. Wysnuj wnioski o najlepszych i najgorszych miarach na podstawie obrazka
+```{r measures_measures, cache = TRUE}
+accMeans <- rep(NA, nimputations)
+accMedians <- rep(NA, nimputations)
+accStDeviations <- rep(NA, nimputations)
 
-4. Wylicz średnie i wariancje dla wszystkich analizowanych zbiorów dla czterech miar
+preMeans <- rep(NA, nimputations)
+preMedians <- rep(NA, nimputations)
+preStDeviations <- rep(NA, nimputations)
 
-5. Zrób prostego ggplota średnich, a imputacji
+recMeans <- rep(NA, nimputations)
+recMedians <- rep(NA, nimputations)
+recStDeviations <- rep(NA, nimputations)
 
-6. Zrób prostego ggplota wariancji, a imputacji
+f1sMeans <- rep(NA, nimputations)
+f1sMedians <- rep(NA, nimputations)
+f1sStDeviations <- rep(NA, nimputations)
 
-7. Wysnuj wnioski z powyższych dwóch wykresów na podstawie wyliczonych prostych miar
+for(i in (1:nimputations)){
+    accMeans[i] <- mean(accuracies[imputation_names[i]][!is.na(accuracies[imputation_names[i]])])
+    accMeans[i] <- round(accMeans[i], 3)
+    accMedians[i] <- median(accuracies[imputation_names[i]][!is.na(accuracies[imputation_names[i]])])
+    accMedians[i] <- round(accMedians[i], 3)
+    accStDeviations[i] <- sd(accuracies[imputation_names[i]][!is.na(accuracies[imputation_names[i]])])
+    accStDeviations[i] <- round(stDeviations[i], 3)
+    
+    preMeans[i] <- mean(precisions[imputation_names[i]][!is.na(precisions[imputation_names[i]])])
+    preMeans[i] <- round(preMeans[i], 3)
+    preMedians[i] <- median(precisions[imputation_names[i]][!is.na(precisions[imputation_names[i]])])
+    preMedians[i] <- round(preMedians[i], 3)
+    preStDeviations[i] <- sd(precisions[imputation_names[i]][!is.na(precisions[imputation_names[i]])])
+    preStDeviations[i] <- round(preStDeviations[i], 3)
+    
+    recMeans[i] <- mean(recalls[imputation_names[i]][!is.na(recalls[imputation_names[i]])])
+    recMeans[i] <- round(recMeans[i], 3)
+    recMedians[i] <- median(recalls[imputation_names[i]][!is.na(recalls[imputation_names[i]])])
+    recMedians[i] <- round(recMedians[i], 3)
+    recStDeviations[i] <- sd(recalls[imputation_names[i]][!is.na(recalls[imputation_names[i]])])
+    recStDeviations[i] <- round(recStDeviations[i], 3)
+    
+    f1sMeans[i] <- mean(f1s[imputation_names[i]][!is.na(f1s[imputation_names[i]])])
+    f1sMeans[i] <- round(f1sMeans[i], 3)
+    f1sMedians[i] <- median(f1s[imputation_names[i]][!is.na(f1s[imputation_names[i]])])
+    f1sMedians[i] <- round(f1sMedians[i], 3)
+    f1sStDeviations[i] <- sd(f1s[imputation_names[i]][!is.na(f1s[imputation_names[i]])])
+    f1sStDeviations[i] <- round(f1sStDeviations[i], 3)
+}
 
-## imputation time and its results
+measures_measures <- data.frame(imputation_names, accMeans, accMedians, accStDeviations,
+                                preMeans, preMedians, preStDeviations,
+                                recMeans, recMedians, recStDeviations,
+                                f1sMeans, f1sMedians, f1sStDeviations)
+
+knitr::kable(measures_measures, content = "Model measures' concentrations' measures")
+```
+
+Looking at the table quickly, we can probably set our podium!! *MissForest* becomes the big winner just before ex aequo in second place: *mice* and *VIM*. At the bottom we have *median*, slightly overtaken by *remove_rows*? Well no! Remember that we should not take datasets for such comparison, for which we have only partial results. They probably strongly disturb the information about the data. The table above is not useless, because in the end we have means, medians and standard deviations of everything we could; but in order to be able to compare them without remorse, we should take only these five - which have complete information - we will calculate again the measures for datasets with ids 38, 56, 27, 55 and 944. This is necessary, because if not for the sets in which, naturally, regardless of the model or imputation we get very high or very low results generate a lot of chaos.
+
+```{r correct_measures_measures, cache = TRUE}
+ids_all_model_measures <- c(4, 6, 9, 11, 12)
+
+accMeans <- rep(NA, nimputations)
+accMedians <- rep(NA, nimputations)
+accStDeviations <- rep(NA, nimputations)
+
+preMeans <- rep(NA, nimputations)
+preMedians <- rep(NA, nimputations)
+preStDeviations <- rep(NA, nimputations)
+
+recMeans <- rep(NA, nimputations)
+recMedians <- rep(NA, nimputations)
+recStDeviations <- rep(NA, nimputations)
+
+f1sMeans <- rep(NA, nimputations)
+f1sMedians <- rep(NA, nimputations)
+f1sStDeviations <- rep(NA, nimputations)
+
+for(i in 1:nimputations){
+    accMeans[i] <- mean(accuracies[imputation_names[i]][ids_all_model_measures,])
+    accMeans[i] <- round(accMeans[i], 3)
+    accMedians[i] <- median(accuracies[imputation_names[i]][ids_all_model_measures,])
+    accMedians[i] <- round(accMedians[i], 3)
+    accStDeviations[i] <- sd(accuracies[imputation_names[i]][ids_all_model_measures,])
+    accStDeviations[i] <- round(stDeviations[i], 3)
+    
+    preMeans[i] <- mean(precisions[imputation_names[i]][ids_all_model_measures,])
+    preMeans[i] <- round(preMeans[i], 3)
+    preMedians[i] <- median(precisions[imputation_names[i]][ids_all_model_measures,])
+    preMedians[i] <- round(preMedians[i], 3)
+    preStDeviations[i] <- sd(precisions[imputation_names[i]][ids_all_model_measures,])
+    preStDeviations[i] <- round(preStDeviations[i], 3)
+    
+    recMeans[i] <- mean(recalls[imputation_names[i]][ids_all_model_measures,])
+    recMeans[i] <- round(recMeans[i], 3)
+    recMedians[i] <- median(recalls[imputation_names[i]][ids_all_model_measures,])
+    recMedians[i] <- round(recMedians[i], 3)
+    recStDeviations[i] <- sd(recalls[imputation_names[i]][ids_all_model_measures,])
+    recStDeviations[i] <- round(recStDeviations[i], 3)
+    
+    f1sMeans[i] <- mean(f1s[imputation_names[i]][ids_all_model_measures,])
+    f1sMeans[i] <- round(f1sMeans[i], 3)
+    f1sMedians[i] <- median(f1s[imputation_names[i]][ids_all_model_measures,])
+    f1sMedians[i] <- round(f1sMedians[i], 3)
+    f1sStDeviations[i] <- sd(f1s[imputation_names[i]][ids_all_model_measures,])
+    f1sStDeviations[i] <- round(f1sStDeviations[i], 3)
+}
+
+correct_measures_measures <- data.frame(imputation_names, accMeans, accMedians, accStDeviations,
+                                preMeans, preMedians, preStDeviations,
+                                recMeans, recMedians, recStDeviations,
+                                f1sMeans, f1sMedians, f1sStDeviations)
+
+knitr::kable(correct_measures_measures, content = "CORRECT model measures' concentrations' measures")
+```
+
+So now we can make some conclusions!
+
+Having the table above, we can't say that *missForest* is definitely the best. Looking at the advanced ones, *missForest* and *VIM* are doing very well, almost always better than their competitors. *VIM* has slightly better accuracy and definitely better precision, while *missForest* dominates in the recall case and has slightly better f1. ***Mice* is almost always the worst**. Even *remove_rows* is doing better than it, and the *median* sometimes catches up with missForest and mice.
+
+Standard deviations are pretty balanced and it's hard to tell anything clever about it - especially considering the small number of collections. Rather, nothing stands out.
+
+Let's visualize dataset's model result's measures.
+
+```{r model_measures_plots, message = FALSE, cache = TRUE}
+colors2 <- c("mean" = "blue", "median" = "orange")
+
+acc_measures <- correct_measures_measures %>% select(imputation_names, accMeans, accMedians)
+colnames(acc_measures) <- c("imputation_name", "mean", "median")
+accMelt <- melt(acc_measures)
+accuracyPlot <- ggplot(data = accMelt, aes(x = imputation_name, y = value, color = variable)) +
+  geom_point(size = 3) + 
+  ylim(0.75, 1) +
+  theme_light() +
+  ggtitle("Accuracies") +
+  labs(color = "Legend") +
+  scale_color_manual(name = "measure", values = colors2) +
+  theme(legend.position="None",
+        plot.title = element_text(hjust = 0.5),
+        axis.title = element_blank())
+
+pre_measures <- correct_measures_measures %>% select(imputation_names, preMeans, preMedians)
+colnames(pre_measures) <- c("imputation_name", "mean", "median")
+preMelt <- melt(pre_measures)
+precisionPlot <- ggplot(data = preMelt, aes(x = imputation_name, y = value, color = variable)) +
+  geom_point(size = 3) + 
+  ylim(0.75, 1) +
+  theme_light() +
+  ggtitle("Precisions") +
+  labs(color = "Legend") +
+  scale_color_manual(name = "measure", values = colors2) +
+  theme(legend.position="None",
+        plot.title = element_text(hjust = 0.5),
+        axis.title = element_blank())
+
+rec_measures <- correct_measures_measures %>% select(imputation_names, preMeans, preMedians)
+colnames(rec_measures) <- c("imputation_name", "mean", "median")
+recMelt <- melt(rec_measures)
+recallPlot <- ggplot(data = recMelt, aes(x = imputation_name, y = value, color = variable)) +
+  geom_point(size = 3) + 
+  ylim(0.75, 1) +
+  theme_light() +
+  ggtitle("Recalls") +
+  labs(x = "Imputation name",
+       y = "Recall",
+       color = "Legend") +
+  scale_color_manual(name = "measure", values = colors2) +
+  theme(legend.position="None",
+        plot.title = element_text(hjust = 0.5),
+        axis.title = element_blank())
+
+f1_measures <- correct_measures_measures %>% select(imputation_names, f1sMeans, f1sMedians)
+colnames(f1_measures) <- c("imputation_name", "mean", "median")
+f1mMelt <- melt(f1_measures)
+f1sPlot <- ggplot(data = f1mMelt, aes(x = imputation_name, y = value, color = variable)) +
+  geom_point(size = 3) + 
+  ylim(0.75, 1) +
+  theme_light() +
+  ggtitle("F1s") +
+  labs(x = "Imputation name",
+       y = "f1",
+       color = "Legend") +
+  scale_color_manual(name = "measure", values = colors2) +
+  theme(legend.position="None",
+        plot.title = element_text(hjust = 0.5),
+        axis.title = element_blank())
+
+grid.arrange(accuracyPlot, precisionPlot,
+             recallPlot, f1sPlot, nrow = 2,
+             top = "Means (blue) and medians (orange) of datasets' imputations' modeling results")
+```
+
+I think we will all agree now - in terms of results, at least looking at these six datasets for which each imputation was successful, we can create such a podium:
+
+1. *mice*
+2. *remove_rows*
+3. *miss_forest*
+4. *median* (!)
+5. *VIM*
+
+Of course, the results are not very representative, given the small number of datasets for which they were compared - but always something.
+
+## Imputation time and its results
 
 1. Wykres po zbiorach: średnich czasów imputacji a średnich wyników miar.
 
 2. Wnioski z tego wykresu. Czy są imputacji i lepsze i szybsze? Czy są i wolniejsze i gorsze? PYTANIE: jaki wykres, w jakiej formie?
 
-## imputation time by size of datasets
+## (Opcjonalnie) Imputation time by size of datasets
 
 1. Opcjonalnie: facet
 x - id zbioru, y - czas imputacji, z - procent braków
@@ -720,6 +910,3 @@ kategoryczny, ciągły, ciągły
 ## Conclusion
 
 TODO: 1. Podsumowanie i wnioski
-
-
-OPCJONALNIE: porównanie wielkości zbiorów a czasów imputacji
