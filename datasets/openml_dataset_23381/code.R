@@ -1,5 +1,5 @@
 # libraries
-library(OpenML)
+
 source('./create_summary_json.R')
 
 # config

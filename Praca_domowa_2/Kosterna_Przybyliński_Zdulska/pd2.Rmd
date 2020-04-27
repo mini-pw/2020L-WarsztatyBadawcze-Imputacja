@@ -1,0 +1,725 @@
+---
+title: "The imputation methods big test"
+author: "Jakub Kosterna, Dawid Przybyliński & Hanna Zdulska"
+date: "22/04/2020"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+Choosing the best-suited imputation is the daily dilemma of every data scientist. Some of they believe the crux lies in the most advanced and sophisticated, the others trust the simplest of all possible.
+
+In this document we will try to find one objectively the finest imputation method by testing five of popular ones on eight specially selected data sets prepared for these operations.
+
+## Imputation functions
+
+We'll look at the two simple imputation methods with the following short markings:
+
+1. *I1* / *modeMedian* - missing data supplemented with medians from individual columns
+2. *I2* / *removeRows* - all the rows with any nonexistent values removed
+
+```{r imputation_basic_functions, cache = TRUE}
+imputation_mode_median <- function(df){
+  
+  Mode <- function(x) {
+    ux <- unique(x)
+    ux[which.max(tabulate(match(x, ux)))]
+  }
+  
+  for (i in 1L:length(df)){
+    if (sum(is.na(df[,i])) > 0){
+      if (mode(df[,i]) == 'character' | is.factor(df[,i])){
+        to_imp <- Mode(df[,i])
+        df[,i][is.na(df[,i])] <- to_imp
+      }
+      else{
+        to_imp <- median(df[,i], na.rm = TRUE) 
+        df[,i][is.na(df[,i])] <- to_imp
+      }
+    }
+  }
+  
+  return(df)
+}
+imputation_remove_rows <- function(df){
+  return (na.omit(df))
+}
+```
+
+... and also three more advanced algorithms from popular libraries:
+
+3. *I3* - *mice*
+4. *I4* - *vim*
+5. *I5* - *missForest*
+
+```{r imputation_advanced_functions, message = FALSE, warning = FALSE, cache = TRUE}
+library(mice)
+imputation_fun_mice <- function(df){
+  init <- mice(df, maxit=0) 
+  meth <- init$method
+  predM <- init$predictorMatrix
+  imputed <- mice(df, method=meth, predictorMatrix=predM, m=5)
+  completed <- complete(imputed)
+  return(completed)
+}
+library(VIM)
+imputation_fun_vim <- function(df){
+  no_columns <- length(df)
+  imputed <- kNN(df)
+  imputed <- imputed[,1:no_columns]
+  return(imputed)
+}
+library(missForest)
+imputation_fun_missForest <- function(df){
+  return(missForest(df)$ximp)
+}
+
+```
+
+## Reading datasets
+
+The eight data frames on which we will test these above were taken from **OpenML100 collection** and were corrected specifically for this research. They can be found under the following identifiers with the following names:
+
+* 1590 - *adult*
+* 188 - *eucalyptus*
+* 23381 - *dresses-sales*
+* 29 - *credit-approval*
+* 38 - *sick*
+* 40536 - *SpeedDating*
+* 41278 - *okcupid-stem*
+* 56 - *vote*
+* 6332 - *cylinder-bands*
+* 1018 - *ipums_la_99-small*
+* 27 - *colic*
+* 4 - *labor*
+* 55 - *hepatitis*
+* 944 - *echoMonths*
+
+
+
+
+Those above have been placed in individual directories identified by id in the prepared directory.
+
+```{r read_dataset, cache = TRUE}
+DFT_REPO_DATASET_DIR = './dependencies/datasets'
+read_dataset <- function(openml_id, dataset_dir = DFT_REPO_DATASET_DIR){
+  
+  if (!dir.exists(dataset_dir)){
+    stop(paste(dataset_dir, 'does not exist' ))
+  }
+  
+  dir <- paste(dataset_dir, paste('openml_dataset', openml_id, sep = '_'), sep ='/')
+  if (!dir.exists(dir)){
+    stop(paste(dir, 'does not exist' ))
+  }
+  
+  start_dir <- getwd()
+  
+  # set right dir to code.R to acually work - it depends on dirlocation to create json
+  setwd(dir)
+  # use new env to avoid trashing globalenv
+  surogate_env <- new.env(parent = .BaseNamespaceEnv)
+  attach(surogate_env)
+  source("code.R",surogate_env)
+  
+  j <- jsonlite::read_json('./dataset.json')
+  j$dataset <- surogate_env$dataset
+  setwd(start_dir)
+  
+  return(j)
+}
+```
+
+In order to read all the eight datasets we will use other function, which will return a dataframe containing all the important informations about the test matrices.
+
+```{r read_all_datasets, cache = TRUE}
+read_all_datasets <- function(dataset_dir = DFT_REPO_DATASET_DIR){
+  
+  if (!dir.exists(dataset_dir)){
+    stop(paste(dataset_dir, 'does not exist'))
+  }
+  
+  start_dir <- getwd()
+  subdirs <- dir(dataset_dir)
+  ids <- sapply(subdirs, function(dir){substr(dir, 16, nchar(dir))})
+  datasets_combined <- lapply(ids, function(x){read_dataset(x, dataset_dir)})
+  
+  datasets_combined <- t(datasets_combined)
+  return(unname(t(datasets_combined)))
+}
+```
+
+## Metrics functions
+
+In order to test the same test-train splits we'll use one random seed 1357 for all datasets.
+
+```{r train_test_split, cache = TRUE}
+set.seed(1357)
+train_test_split <- function(dataset, train_size){
+  smp_size <- floor(train_size * nrow(dataset))
+  typeof(smp_size)
+  
+  train_ind <- sample(seq_len(nrow(dataset)), size = smp_size)
+  
+  train <- dataset[train_ind, ]
+  test <- dataset[-train_ind, ]
+  
+  return (list(train, test))
+}
+```
+
+For each machine learning model after every imputation we will get the confusion matrix and the values of four basic metrics:
+
+* *accuracy* - $\frac{TP+TN}{TP+FP+FN+TN}$
+* *precision* - $\frac{TP}{TP+FP}$
+* *recall* - $\frac{TP}{TP+FN}$
+* *f1* - $2*\frac{Recall * Precision}{Recall + Precision}$
+
+```{r metrics, cache = TRUE}
+get_confusion_matrix <- function(test, pred){
+  return (table(Truth = test, Prediction = pred))
+}
+confusion_matrix_values <- function(confusion_matrix){
+  TP <- confusion_matrix[2,2]
+  TN <- confusion_matrix[1,1]
+  FP <- confusion_matrix[1,2]
+  FN <- confusion_matrix[2,1]
+  return (c(TP, TN, FP, FN))
+}
+accuracy <- function(confusion_matrix){
+  conf_matrix <- confusion_matrix_values(confusion_matrix)
+  return((conf_matrix[1] + conf_matrix[2]) / (conf_matrix[1] + conf_matrix[2] + conf_matrix[3] + conf_matrix[4]))
+}
+precision <- function(confusion_matrix){
+  conf_matrix <- confusion_matrix_values(confusion_matrix)
+  return(conf_matrix[1]/ (conf_matrix[1] + conf_matrix[3]))
+}
+recall <- function(confusion_matrix){
+  conf_matrix <- confusion_matrix_values(confusion_matrix)
+  return(conf_matrix[1] / (conf_matrix[1] + conf_matrix[4]))
+}
+f1 <- function(confusion_matrix){
+  conf_matrix <- confusion_matrix_values(confusion_matrix)
+  rec <- recall(confusion_matrix)
+  prec <- precision(confusion_matrix)
+  return(2 * (rec * prec) / (rec + prec))
+}
+```
+
+## Imputation results
+
+```{r get_result_function, warning = FALSE, message = FALSE, cache = TRUE}
+library(rpart)
+get_result <- function(dataset_list, imputation_fun){
+  
+dataset <- dataset_list$dataset
+name_of_target <- dataset_list$target
+# imputation
+imputation_start = Sys.time() # start to measure time
+imputated_dataset <- imputation_fun(dataset) 
+imputation_stop = Sys.time() # end measuring time
+# train test split
+train_test <- train_test_split(imputated_dataset, 0.8)
+train <- as.data.table(train_test[1])
+test <- as.data.table(train_test[2])
+# modelling
+vars <- colnames(dataset)[colnames(dataset)!=name_of_target]
+my_formula <- as.formula(paste(name_of_target, paste(vars, collapse=" + "), sep=" ~ "))
+modelling_start = Sys.time() # start to measure time
+tree_model <- rpart(formula = my_formula, data = train,
+                    method = "class", control = rpart.control(cp = 0))
+y_pred <- as.data.frame(predict(tree_model, test, type = "class"))
+modelling_stop = Sys.time() # end measuring time
+# calculating metrics
+confusion_matrix <- get_confusion_matrix(test[[name_of_target]], y_pred[,1])
+accuracy_v <- accuracy(confusion_matrix)
+precision_v <- precision(confusion_matrix)
+recall_v <- recall(confusion_matrix)
+f1_v <- f1(confusion_matrix)
+classification_report <- data.frame(accuracy_v, precision_v,
+                                    recall_v, f1_v)
+colnames(classification_report) <- c("accuracy", "precision",
+                                     "recall", "f1")
+dataset_list$dataset <- NULL
+# in future maybe return all dataset_list ?
+# for now stick with readability
+imp_method_name <- deparse(substitute(imputation_fun))
+return(list( dataset_id = dataset_list$id, 
+             imp_method = imp_method_name,
+             confusion_matrix = confusion_matrix,
+             classification_report = classification_report,
+             imputation_time = imputation_stop - imputation_start,
+             modelling_time = modelling_stop - modelling_start))
+}
+data_all <- read_all_datasets()
+# imputations and targets preparation
+imputations <- list(imputation_fun_vim, imputation_fun_missForest,
+                  imputation_remove_rows, imputation_mode_median, imputation_fun_mice)
+targets <- lapply(data_all, function(d){d$target})
+```
+
+Here are the results:
+
+```{r warning=FALSE, cache = TRUE}
+  library(knitr)
+  results <- rep(list(0), 5)
+  results[[1]] <- readRDS('./part_results/res1_new.rds')
+  results[[2]] <- readRDS('./part_results/res2_new.rds')
+  results[[3]] <- readRDS('./part_results/res3_new.rds')
+  results[[4]] <- readRDS('./part_results/res4_new.rds')
+  results[[5]] <- readRDS('./part_results/res5_new.rds')
+  
+  result_table <- function(ds_it){
+    d <- data.frame(matrix(ncol = 7, nrow = 0))
+    colnames(d) <- c("imputation", "accuracy", "precision", "recall", "f1", "imp_time", "mod_time")
+    for (i in 1:length(imputations)){
+      if (length(results[[i]][[ds_it]]) != 1){ # length equal 1 means "ERROR" was generated in partial results 
+        d[i,] <- c(results[[i]][[ds_it]]$imp_method,
+               round(as.numeric(results[[i]][[ds_it]]$classification_report$accuracy),3),   
+               round(as.numeric(results[[i]][[ds_it]]$classification_report$precision),3),
+               round(as.numeric(results[[i]][[ds_it]]$classification_report$recall),3),
+               round(as.numeric(results[[i]][[ds_it]]$classification_report$f1),3),
+               round(as.numeric(results[[i]][[ds_it]]$imputation_time),3),
+               # @TODO konwersja jednostek, as.numeric nie rozroznia jednostek czasu
+               round(as.numeric(results[[i]][[ds_it]]$modelling_time),3)) 
+      }
+      else{ # for error input imputation name
+        if (i==3){
+          d[i,1] <- "imputation_fun_mice" 
+        }
+        if (i==4){
+          d[i,1] <- "imputation_fun_missForest" 
+        }
+        if (i==5){
+          d[i,1] <- "imputation_fun_vim" 
+        }
+      }
+    }
+    d
+  }
+  
+  # change i bound to number of datasets 
+  #for (i in 1:length(results[[1]])){ # won't use it, because the output looks bad
+  #  kable(result_table(i), caption = paste("Dataset id: ", results[[2]][[i]]$dataset_id, sep = ""))
+  #}
+  
+  kable(result_table(1), caption = paste("Dataset id: ", results[[2]][[1]]$dataset_id, sep = ""))
+  kable(result_table(2), caption = paste("Dataset id: ", results[[2]][[2]]$dataset_id, sep = ""))
+  kable(result_table(3), caption = paste("Dataset id: ", results[[2]][[3]]$dataset_id, sep = ""))
+  kable(result_table(4), caption = paste("Dataset id: ", results[[2]][[4]]$dataset_id, sep = ""))
+  kable(result_table(5), caption = paste("Dataset id: ", results[[2]][[5]]$dataset_id, sep = ""))
+  kable(result_table(6), caption = paste("Dataset id: ", results[[2]][[6]]$dataset_id, sep = ""))
+  kable(result_table(7), caption = paste("Dataset id: ", results[[2]][[7]]$dataset_id, sep = ""))
+  kable(result_table(8), caption = paste("Dataset id: ", results[[2]][[8]]$dataset_id, sep = ""))
+  kable(result_table(9), caption = paste("Dataset id: ", results[[2]][[9]]$dataset_id, sep = ""))
+  kable(result_table(10), caption = paste("Dataset id: ", results[[2]][[10]]$dataset_id, sep = ""))
+  kable(result_table(11), caption = paste("Dataset id: ", results[[2]][[11]]$dataset_id, sep = ""))
+  kable(result_table(12), caption = paste("Dataset id: ", results[[2]][[12]]$dataset_id, sep = ""))
+  kable(result_table(13), caption = paste("Dataset id: ", results[[2]][[13]]$dataset_id, sep = ""))
+  kable(result_table(14), caption = paste("Dataset id: ", results[[2]][[14]]$dataset_id, sep = ""))
+```
+
+## Comparing imputation times
+
+Let's build a dataframe containing information about imputation methods.
+
+```{r imputation_times_counting, cache = TRUE}
+ndatasets <- length(results[[1]])
+nimputations <- length(imputations)
+imputation_names <- c("remove", "median", "mice", "missForest", "VIM")
+dataset_ids <- rep(NULL, ndatasets)
+for(i in 1:ndatasets){
+  dataset_ids[i] <- results[[2]][[i]]$dataset_id
+}
+
+imputation_times <- data.frame(rep(0, ndatasets))
+for (imputation_id in 1:nimputations){
+  imp_id_times <- rep(NULL, ndatasets)
+  
+  for(dataset_id in 1:ndatasets){
+    if("imputation_time" %in% names(results[[imputation_id]][[dataset_id]])){
+      imp_time <- results[[imputation_id]][[dataset_id]]$imputation_time
+      imp_time <- as.numeric(imp_time, units="secs")
+      imp_id_times[dataset_id] <- imp_time
+    }
+  }
+  imputation_times <- cbind(imputation_times, imp_id_times)
+}
+
+imputation_times[1] <- dataset_ids
+colnames(imputation_times) <- c("dataset_id", imputation_names)
+imputation_times$dataset_id <- as.factor(imputation_times$dataset_id)
+knitr::kable(imputation_times)
+```
+
+Looks good! Now it's visualization time.
+
+```{r imputation_times_plot, message = FALSE, warning = FALSE, cache = TRUE}
+library(ggplot2)
+# install.packages("reshape") # if not installed
+library(reshape)
+
+# in order to connect colors and shapes in legend see:
+# https://stackoverflow.com/questions/12410908/combine-legends-for-color-and-shape-into-a-single-legend
+
+colors <- c("remove" = "orange", "median" = "cyan", "mice" = "green",
+            "missForest" = "red", "VIM" = "blue")
+imptimes <- melt(imputation_times)
+
+require(scales)
+ggplot(data=imptimes, aes(x = dataset_id, y = value, color = variable, shape = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' imputations times") +
+  theme_gray() +
+  scale_y_continuous(trans = log2_trans(),
+    breaks = trans_breaks("log2", function(x) 2^x),
+    labels = trans_format("log2", math_format(2^.x))) +
+  labs(x = "Dataset Id",
+       y = "Imputation time [in seconds]",
+       color = "Legend") +
+  scale_color_manual(name = "imputation name", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+```
+
+Judging by the logarithmic scale, no surprise removing rows and median replenishment are definetely the fastest methods, with removing rows being several times faster. Looking at more advanced ones, definetely *VIM* rules - probably usually something like 5-10 times faster than *mice* and *missForest*. These last two are quite slow, with the missforest appearing to be slightly faster.
+
+What do the numbers say?
+
+```{r imputation_times_measures, cache = TRUE}
+means <- rep(NA, nimputations)
+medians <- rep(NA, nimputations)
+stDeviations <- rep(NA, nimputations)
+
+for(i in (1:nimputations)){
+  means[i] <- mean(imputation_times[imputation_names[i]][!is.na(imputation_times[imputation_names[i]])])
+  means[i] <- round(means[i], 3)
+  medians[i] <- median(imputation_times[imputation_names[i]][!is.na(imputation_times[imputation_names[i]])])
+  medians[i] <- round(medians[i], 3)
+  stDeviations[i] <- sd(imputation_times[imputation_names[i]][!is.na(imputation_times[imputation_names[i]])])
+  stDeviations[i] <- round(stDeviations[i], 3)
+}
+
+imputation_times_measures <- data.frame(imputation_names, means, medians, stDeviations)
+knitr::kable(imputation_times_measures)
+```
+
+Taking into acount all the imputations which have been implemented, we can clearly see that two easy ones really stand out. However, we cannot fully compare the other three - due to the fact that missForest failed on three data sets, and mice - up to seven.
+
+Considering such a large spread of data size, it is very interesting difference between the median and the average for VIM - the first is almost seven minutes, the second - barely one and a half seconds. In general, however, it is certainly much longer than methods for removing incomplete rows and filling with median.
+
+Let's count these four measures again, but only for those datasats for which all imputations were successful - these are ids 27, 38, 55, 56, 944, 188  (dataset with id 4 softened on removing rows containing any missing items, because each of its poems had some missing items).
+
+```{r imputation_times_measures_little, cache = TRUE}
+dataset_ids_fullimp <- c(2, 5, 8, 11, 13, 14)
+ndatasets_fullimp <- length(dataset_ids_fullimp)
+
+means <- rep(NA, nimputations)
+medians <- rep(NA, nimputations)
+stDeviations <- rep(NA, nimputations)
+
+for(i in 1:nimputations){
+  means[i] <- mean(imputation_times[imputation_names[i]][dataset_ids_fullimp,])
+  means[i] <- round(means[i], 3)
+  medians[i] <- median(imputation_times[imputation_names[i]][dataset_ids_fullimp,])
+  medians[i] <- round(medians[i], 3)
+  stDeviations[i] <- sd(imputation_times[imputation_names[i]][dataset_ids_fullimp,])
+  stDeviations[i] <- round(stDeviations[i], 3)
+}
+
+imputation_times_measures_fullimp <- data.frame(imputation_names, means, medians, stDeviations)
+knitr::kable(imputation_times_measures_fullimp)
+```
+
+Now we have better results to compare. Taking into account the mean time, definetely *missForest* is the slowest, but also its standard deviaton is incomparably huge - this is probably due to the fact that for smaller sets it is doing well, but due to its complexity, its slowdown can be seen for very large datasets. As shown in the chart, *VIM* is definitely better for quick calculations than *missForest* and *mice*, and considering the median, *mice* is comparable to *missForest* - so you can expect that for small data sets there is not much difference between them, and a lot of time we definitely need to devote to these larger data frames.
+
+## Comparing modeling times
+
+Let's also take a look at modeling times.
+
+```{r modeling_times_counting, cache = TRUE}
+modeling_times <- data.frame(rep(0, ndatasets))
+
+for (imputation_id in 1:nimputations){
+  mod_id_times <- rep(NULL, ndatasets)
+  
+  for(dataset_id in 1:ndatasets){
+    if("imputation_time" %in% names(results[[imputation_id]][[dataset_id]])){
+      mod_time <- results[[imputation_id]][[dataset_id]]$modelling_time
+      mod_time <- as.numeric(mod_time, units="secs")
+      mod_id_times[dataset_id] <- mod_time
+    }
+  }
+  modeling_times <- cbind(modeling_times, mod_id_times)
+}
+
+modeling_times[1] <- dataset_ids
+colnames(modeling_times) <- c("dataset_id", imputation_names)
+imputation_times$dataset_id <- as.factor(modeling_times$dataset_id)
+knitr::kable(modeling_times)
+```
+
+Very interesting! The longest modeling time took one of the largest sets... on deficiencies supplemented by median. And it took apparently longer than other modeling! could a random tree have more to do with a lot of the same values? Probably yes. Let's visualize our results.
+
+```{r modeling_times_plot, message = FALSE, warning = FALSE, cache = TRUE}
+modeling_times$dataset_id <- as.factor(modeling_times$dataset_id)
+modtimes <- melt(modeling_times)
+
+require(scales)
+ggplot(data=modtimes, aes(x = dataset_id, y = value, color = variable, shape = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' modeling times") +
+  theme_light() +
+  scale_y_continuous(trans = log2_trans(),
+    breaks = trans_breaks("log2", function(x) 2^x),
+    labels = trans_format("log2", math_format(2^.x))) +
+  labs(x = "Dataset Id",
+       y = "Modeling time [in seconds]",
+       color = "Legend") +
+  scale_color_manual(name = "imputation name", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+```
+
+Here the results seem to be way more scattered. Let's check on measures also.
+
+```{r modeling_times_measures, cache = TRUE}
+means <- rep(NA, nimputations)
+medians <- rep(NA, nimputations)
+stDeviations <- rep(NA, nimputations)
+
+for(i in (1:nimputations)){
+  means[i] <- mean(modeling_times[imputation_names[i]][!is.na(modeling_times[imputation_names[i]])])
+  means[i] <- round(means[i], 3)
+  medians[i] <- median(modeling_times[imputation_names[i]][!is.na(modeling_times[imputation_names[i]])])
+  medians[i] <- round(medians[i], 3)
+  stDeviations[i] <- sd(modeling_times[imputation_names[i]][!is.na(modeling_times[imputation_names[i]])])
+  stDeviations[i] <- round(stDeviations[i], 3)
+}
+
+modeling_times_measures <- data.frame(imputation_names, means, medians, stDeviations)
+knitr::kable(modeling_times_measures)
+```
+
+The powerful but also fast tree classifier from *rpast* (both looking at the median and average) counted everything in less than a second. The largest fluctuations can be observed for the method of *median* and *VIM* supplementation - for them the standard deviation is less than two and a half seconds. You can also see very similar all three average measures for these two, probably due to the operation of *VIM* as a result giving similar effects as the *median*. Interestingly, unbeatably the fastest tree was built for the *mice* algorithm ... but wait! Maybe we'd better compare only the imputations for those sets for which we've done everything.
+
+```{r modeling_times_measures_little, cache = TRUE}
+means <- rep(NA, nimputations)
+medians <- rep(NA, nimputations)
+stDeviations <- rep(NA, nimputations)
+
+for(i in 1:nimputations){
+  means[i] <- mean(modeling_times[imputation_names[i]][dataset_ids_fullimp,])
+  means[i] <- round(means[i], 3)
+  medians[i] <- median(modeling_times[imputation_names[i]][dataset_ids_fullimp,])
+  medians[i] <- round(medians[i], 3)
+  stDeviations[i] <- sd(modeling_times[imputation_names[i]][dataset_ids_fullimp,])
+  stDeviations[i] <- round(stDeviations[i], 3)
+}
+
+modeling_times_measures_fullimp <- data.frame(imputation_names, means, medians, stDeviations)
+knitr::kable(modeling_times_measures_fullimp)
+```
+
+On the attached non-manipulated table, all average measures are almost identical. The conclusion is that the method of imputation probably has almost no effect on the modeling time - although it is difficult to say, given that we had a fairly small number of sets to compare and we have values in the order of hundredths of a second - probably just the operation of the computer pretty badly distorts the result.
+
+## Best measures
+
+Let us draw attention to our measures. How did our four measures work on them?
+
+Attention! We will not consider sets with id 41278 and 188 in the next steps - they are non-binary classifications, so they are not affected by accuracy, precision, recall and f1. However, from the remaining twelve collections - we will be able to draw many valuable conclusions.
+
+```{r measures_tables, cache = TRUE}
+bin_ids <- c(1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14)
+
+accuracies <- data.frame(rep(0, ndatasets))
+precisions <- data.frame(rep(0, ndatasets))
+recalls <- data.frame(rep(0, ndatasets))
+f1s <- data.frame(rep(0, ndatasets))
+
+for (imputation_id in 1:nimputations){
+  acc_id <- rep(NA, ndatasets)
+  pre_id <- rep(NA, ndatasets)
+  rec_id <- rep(NA, ndatasets)
+  f1_id <- rep(NA, ndatasets)
+  
+  for(dataset_id in bin_ids){
+    if("classification_report" %in% names(results[[imputation_id]][[dataset_id]])){
+      accuracy <- results[[imputation_id]][[dataset_id]]$classification_report$accuracy
+      acc_id[dataset_id] <- accuracy
+      precision <- results[[imputation_id]][[dataset_id]]$classification_report$precision
+      pre_id[dataset_id] <- precision
+      recall <- results[[imputation_id]][[dataset_id]]$classification_report$recall
+      rec_id[dataset_id] <- recall
+      f1 <- results[[imputation_id]][[dataset_id]]$classification_report$f1
+      f1_id[dataset_id] <- f1
+    }
+  }
+  accuracies <- cbind(accuracies, acc_id)
+  precisions <- cbind(precisions, pre_id)
+  recalls <- cbind(recalls, rec_id)
+  f1s <- cbind(f1s, f1_id)
+}
+
+accuracies[1] <- dataset_ids
+colnames(accuracies) <- c("dataset_id", imputation_names)
+accuracies$dataset_id <- as.factor(accuracies$dataset_id)
+accuracies <- accuracies[-c(2, 7), ] # delete  non-binary classification datasets
+knitr::kable(accuracies, caption = "Accuracies")
+
+precisions[1] <- dataset_ids
+colnames(precisions) <- c("dataset_id", imputation_names)
+precisions$dataset_id <- as.factor(precisions$dataset_id)
+precisions <- precisions[-c(2, 7), ] # delete  non-binary classification datasets
+knitr::kable(precisions, caption = "Precisions")
+
+recalls[1] <- dataset_ids
+colnames(recalls) <- c("dataset_id", imputation_names)
+recalls$dataset_id <- as.factor(recalls$dataset_id)
+recalls <- recalls[-c(2, 7), ] # delete  non-binary classification datasets
+knitr::kable(recalls, caption = "Recalls")
+
+f1s[1] <- dataset_ids
+colnames(f1s) <- c("dataset_id", imputation_names)
+f1s$dataset_id <- as.factor(f1s$dataset_id)
+f1s <- f1s[-c(2, 7), ] # delete  non-binary classification datasets
+knitr::kable(f1s, caption = "F1s")
+```
+
+Much data!!
+
+Naturally - we'll visualize it.
+
+```{r measures_visualizations, message = FALSE, warning = FALSE, cache = TRUE}
+accMelt <- melt(accuracies)
+accPlot <- ggplot(data=accMelt, aes(x = dataset_id, y = value, color = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' accuracies") +
+  ylim(0, 1) +
+  labs(x = "Dataset Id",
+       y = "Accuracy",
+       color = "Legend") +
+  scale_color_manual(name = "accuracy", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+accPlot
+
+preMelt <- melt(precisions)
+prePlot <- ggplot(data=preMelt, aes(x = dataset_id, y = value, color = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' precisions") +
+  ylim(0, 1) +
+  labs(x = "Dataset Id",
+       y = "Precision",
+       color = "Legend") +
+  scale_color_manual(name = "precision", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+prePlot
+
+recMelt <- melt(recalls)
+recPlot <- ggplot(data=recMelt, aes(x = dataset_id, y = value, color = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' recalls") +
+  ylim(0, 1) +
+  labs(x = "Dataset Id",
+       y = "Recall",
+       color = "Legend") +
+  scale_color_manual(name = "recall", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+recPlot
+
+f1Melt <- melt(f1s)
+f1Plot <- ggplot(data=f1Melt, aes(x = dataset_id, y = value, color = variable)) +
+  geom_point() + 
+  ggtitle("Datasets' f1s") +
+  ylim(0, 1) +
+  labs(x = "Dataset Id",
+       y = "F1",
+       color = "Legend") +
+  scale_color_manual(name = "f1", values = colors) +
+  theme(legend.position="right",
+        plot.title = element_text(hjust = 0.5))
+f1Plot
+
+library(gridExtra)
+grid.arrange(accPlot +
+               ggtitle("Accuracies") +
+               theme(legend.position = "none",
+                axis.line.x = element_blank(),
+                axis.ticks.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.title = element_blank()),
+              prePlot +
+               ggtitle("Precisions") +
+               theme(legend.position = "none",
+                axis.line.x = element_blank(),
+                axis.ticks.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.title = element_blank()),
+              recPlot +
+               ggtitle("Recalls") +
+               theme(legend.position = "none",
+                axis.line.x = element_blank(),
+                axis.ticks.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.title = element_blank()),
+             f1Plot +
+               ggtitle("F1s") +
+               theme(legend.position = "none",
+                axis.line.x = element_blank(),
+                axis.ticks.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.title = element_blank()),
+             nrow = 2,
+             top = "Measues values for different datasets' imputations")
+```
+
+... where colors of points represent: <p style="color:orange">*1. **remove***</p>
+<p style="color:cyan">*2. **median***</p><p style="color:green">*3. **mice***</p>
+<p style="color:red">*4. **missForest***</p><p style="color:blue">*5. **VIM***</p>
+
+Looking only at these plots, it is difficult to come up with something at first glance - for each time I come to some conclusion, results for a few other datasets that I did not pay attention to deny it. For sure we can already say that the scatter of results is rather large and analyzing the measures of concentration, we probably will not clearly indicate the best or the worst imputation.
+
+###############################
+
+TODO:
+3. Wysnuj wnioski o najlepszych i najgorszych miarach na podstawie obrazka
+
+4. Wylicz średnie i wariancje dla wszystkich analizowanych zbiorów dla czterech miar
+
+5. Zrób prostego ggplota średnich, a imputacji
+
+6. Zrób prostego ggplota wariancji, a imputacji
+
+7. Wysnuj wnioski z powyższych dwóch wykresów na podstawie wyliczonych prostych miar
+
+## imputation time and its results
+
+1. Wykres po zbiorach: średnich czasów imputacji a średnich wyników miar.
+
+2. Wnioski z tego wykresu. Czy są imputacji i lepsze i szybsze? Czy są i wolniejsze i gorsze? PYTANIE: jaki wykres, w jakiej formie?
+
+## imputation time by size of datasets
+
+1. Opcjonalnie: facet
+x - id zbioru, y - czas imputacji, z - procent braków
+kategoryczny, ciągły, ciągły
+
+2. Opcjonalnie: facet
+x - id zbioru, y - czas imputacji, z - wielkość zbioru
+kategoryczny, ciągły, ciągły
+
+## Conclusion
+
+TODO: 1. Podsumowanie i wnioski
+
+
+OPCJONALNIE: porównanie wielkości zbiorów a czasów imputacji

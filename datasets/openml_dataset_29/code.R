@@ -16,10 +16,7 @@ df <- data$data
 for (col in colnames(df)){
   df[col][df[col] == "?"] <- NA
 }
-
 # lets see if it did it
-str(df)
-
 
 change_to_factor <- function(df){
   for (i in seq_along(colnames(df))){
@@ -31,7 +28,7 @@ change_to_factor <- function(df){
 }
 df <- change_to_factor(df)
 
-str(df)
+
 
 colnames(df) <- c("Sex",
                     "Age",
@@ -40,7 +37,7 @@ colnames(df) <- c("Sex",
                     "BankCustomer",
                     "EducationLevel",
                     "Ethicity",
-                    "Years employed",
+                    "Years_employed",
                     "PriorDefault",
                     "Employed",
                     "CreditScore",
