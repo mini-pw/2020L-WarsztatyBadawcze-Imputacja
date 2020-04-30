@@ -2,7 +2,13 @@
 title: "Imputation methods' comparison"
 author: "Mikołaj Jakubowski, Marceli Korbin, Patryk Wrona"
 date: "27th of April, 2020"
-output: html_document
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -23,11 +29,11 @@ In the report, we will evaluate machine learning algorithms' performance based o
 
 We are going to implement (using R language) and evaluate five imputation methods:  
 
-* deleting features that contain any missing data;  
-* completing columns with mean (numeric features), median (integer features) or dominant (factor features);  
-* IRMI method from the VIM package;  
-* mice imputation;  
-* missForest imputation.
+* **deleting features** that contain any missing data;  
+* completing columns with **mean** (numeric features), **median** (integer features) or **dominant** (factor features);  
+* **IRMI** method from the VIM package;  
+* **mice** imputation;  
+* **missForest** imputation.
 
 The first two are basic, manual methods, while the next three come from R packages designed for and focusing on working with data imputation. With such set, we give ourselves the opportunity to check the performance basing on the complexity of methods.
 
@@ -206,7 +212,9 @@ In order to assess imputation algorithms, we will compare the metrics of the bel
 - Linear Regression
 - Gradient Boosting
 
-Loading these algorithms from our scripts:
+We have chosen 1 algorithm for each dataset basing on whether this dataset is large (Gradient Boosting) or small (Random Forest or Linear Regression).
+
+We have already created scripts that take our data frames, then teach a model on it to finally assess the model's performance. They are named: "[model's name]_train_and_result.R".
 
 
 ```{r, echo=FALSE, results='hide', message = FALSE, warning = FALSE}
@@ -217,7 +225,7 @@ source('./random_forest_train_and_result.R')
 ```
 
 
-### 1 - Random Forest
+### Dataset 1 - Random Forest
 
 ```{r, message = FALSE, warning = FALSE}
 results <- list(NA)
@@ -236,7 +244,7 @@ for(i in 3:5){
 results[[1]]
 ```
 
-### 2 - Linear regression
+### Dataset 2 - Linear regression
 
 
 ```{r, message = FALSE, warning = FALSE}
@@ -254,7 +262,7 @@ for(i in 2:5){
 results[[2]]
 ```
 
-### 3 - Random Forest
+### Dataset 3 - Random Forest
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 29:
@@ -273,7 +281,7 @@ results[[3]] <- rbind(results[[3]], getRFResults(imp, target))
 results[[3]]
 ```
 
-### 4 - Gradient Boosting
+### Dataset 4 - Gradient Boosting
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 38:
@@ -290,7 +298,7 @@ for(i in 2:5){
 results[[4]]
 ```
 
-### 5 - Linear regression
+### Dataset 5 - Linear regression
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 55:
@@ -307,7 +315,7 @@ for(i in 2:5){
 results[[5]]
 ```
 
-### 6 - Linear regression
+### Dataset 6 - Linear regression
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 56:
@@ -327,7 +335,7 @@ for(i in 4:5){
 results[[6]]
 ```
 
-### 7 - Gradient Boosting
+### Dataset 7 - Gradient Boosting
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 188:
@@ -344,7 +352,7 @@ for(i in 2:5){
 results[[7]]
 ```
 
-### 8 - Random Forest
+### Dataset 8 - Random Forest
 
 ```{r, message = FALSE, warning = FALSE}
 # DATASET 944:
@@ -369,16 +377,16 @@ results[[8]]
 
 Thanks to our results, we can deduce the best techniques of imputation that appeared in each dataset of our research:
 
-Datasets:
+Datasets and their respective best imputation methods (1st and 2nd place ranking):
 
-1) - 3,5
-2) - 3,2
-3) - 5,3
-4) - 5,2
-5) - 5,4
-6) - 5,4
-7) - 3,4
-8) - 3,5
+1) IRMI(3), missForest(5)
+2) IRMI(3), mean/median/dominant(2)
+3) missForest(5), IRMI(3)
+4) missForest(5), mean/median/dominant(2)
+5) missForest(5), mice(4)
+6) missForest(5), mice(4)
+7) IRMI(3), mice(4)
+8) IRMI(3), missForest(5)
 
-Looking simply on the best imputations is not enough because there would be 2 winners. Nevertheless, judging by two best imputation techniques, one can deduce that the most occurring was number **5** that is **missForest** imputation. On the other hand, the worst imputation technique was **1 - deleting columns with NA**
+Looking simply on the best imputations is not enough because there would be 2 winners. Nevertheless, judging by two best imputation techniques, one can deduce that the most occurring was **missForest(5)** imputation. On the other hand, the worst imputation technique was **deleting columns with NA(1)** which could be seen after comparing performance metrics. Indeed, more complex techiques (*missForest* & *IRMI*) often bring better results, while a realtively simple technique (in this case - *deleting columns*) is the fastest and usually the worst imputation technique.
 
