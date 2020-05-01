@@ -1,0 +1,292 @@
+---
+title: "Comparision of efficiency of various data imputation techniques in R"
+author: "Agata Makarewicz, Martyna Majchrzak, Jacek Wiśniewski"
+date: "27 04 2020"
+output: html_document
+---
+
+```{r setup, include=TRUE, warning=FALSE, echo=FALSE, resuls='hide', include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, cache=TRUE)
+library(tidyverse)
+library(reshape2)
+library(dplyr)
+source('evaluate_imputations.R')
+source('load_datasets.R')
+```
+
+## Abstract
+
+Imputation of missing values is a common step of machine learning process and sometimes a difficult problem. Many real-life datasets contain incomplete observations and dealing with them is key part of modelling as most of the algorithms provided by widely used R packages (for instance caret or mlr) require complete data.
+The aim of this report is to measure the influence of five different imputation methods on the performance of a selected classification model. Simple, common methods such as basic mean, median and mode are compared with advanced imputation techniques from specialized R packages - mice, VIM and softImpute.
+As a tested algorithm, Recursive Partitioning And Regression Trees was chosen.
+It's prediction effectiveness is assessed by AUC (area under the ROC curve) and BACC (Balanced Accuracy) to provide a proper measure for both balanced and imbalanced data.\
+
+## Introduction 
+
+Dealing with missing values is an important part of reprocessing data used for machine learning models, because they do not accept incomplete observations.
+There are many methods which allow to handle this issue. 
+Firstly, there are basic ones such as removing rows or imputing with mean or mode, which are fast and easy to implement, however they do not guarantee a very good performance. On the other hand, many sophisticated strategies exist, e.g. using tree-based models, which usually result in better models, but enhance algorithm's complexity and computional time.
+In this paper the quality of 5 different approaches to data imputation is compared, and their impact on binary classification data modelling is assessed.
+Summary of the results presents which imputations contributed to achiving the best model's predictions. 
+To achieve the goal of this study the following experiment will be conducted on 10 datasets, gathered mostly from OpenML and some from the imputation packages.
+
+## Methodology 
+
+In the following table are presented the datasets used for this experiment, along with their OpenML ID number, name, number of instances, number of features and number of missing values. The datasets vary in size and number of missing values.
+
+
+```{r dataset table, results='hide'}
+library(dplyr)
+data_nr <- c("1590", "188", "27", "29", "38", "4", "40536", "55", "56", "944")
+data_name <- c("adult", "eucalyptus", "colic", "credit-approval", "sick", "labor", "SpeedDating", "hepatitis", "vote", "echoMonths" )
+nr_instances <- c(48842, 736, 368, 690, 3772, 57, 8378, 155, 435, 130)
+nr_features <- c(13, 16, 20, 16, 28, 17, 123, 20, 17, 10)
+nr_missing<-c(6465, 455, 1199, 67, 2293, 326, 18570, 167, 392, 97)
+
+datasets <- data.frame(cbind(data_nr, 
+                     data_name, 
+                     nr_instances, 
+                     nr_features,
+                     nr_missing))
+
+datasets1<-datasets%>%
+  transmute(data_nr=data_nr,
+            data_name=data_name,
+            nr_instances=as.numeric(as.character(nr_instances)),
+            nr_features=as.numeric(as.character(nr_features)),
+            nr_missing=as.numeric(as.character(nr_missing)))%>%
+  mutate(procent_missing=round(nr_missing/(nr_instances*nr_features),2))
+# colnames(datasets)
+
+```
+
+```{r tab1, resuls='hide'}
+knitr::kable(datasets1, caption = "Tab.1. Datasets")
+```
+
+### Imputation strategies
+
+The imputations, that were performed and analyzed include:
+
+* **mean/mode imputation**\
+  One of the basic techniques, replaces missing values with mean (for continuous variables) and mode (for categorical variables) of complete values in given variable. Implemented with basic R functions.
+
+* **mice (predictive mean matching)**\
+   Performs multivariate imputation by chained equations, meaning it creates multiple imputations (replacement values) for multivariate missing data. Implemented with mice() function (with method parameter set to "pmm") from mice package.
+
+* **k-nearest neighbours**\
+  An aggregation of the non-missing values of the k nearest neighbors is used as imputed value. The kind of aggregation depends on the type of the variable.Implemended with kNN() function from VIM package.
+  
+* **hotdeck** \
+  Each missing value is replaced with an observed response from a “similar” unit. Implemented with hotdeck() function from VIM package.
+
+* **softImpute combined with median/mode imputation**\
+  For numeric variables function softImpute() from softImpute package is used, fitting a low-rank matrix approximation to a matrix with missing values via nuclear-norm regularization. For remaining variables missing values are imputed with median or mode, which is implemented with impute() function from imputeMissings() package.
+
+### Implementation
+
+To conduct the experiment a function **evaluate_imputations()** placed in the script with the same name was implemented. The function receives as arguments:
+
+* a single dataset to impute 
+* a name of the target variable
+
+Dataset is splitted into train set (80% of observation) and train set (20% of observation).
+They are imputed separately, using methods described above, in order do avoid data leakage.
+Afterwards modelling is performed, using mlr3 package.Recursive Partitioning And Regression Trees learner is trained on train set and then prediction on test set are made. 
+Two evaluate the model performance two metrics are used:
+
+* **AUC**\
+  Area under the curve; represents degree or measure of separability. The probability that the model ranks a random positive example more highly than a random negative example.
+  
+* **Balanced Accuracy** \
+  Arythmetic mean of the TPR (Sensitivity) and FPR (Specificity). 
+  Balanced Accuracy is used instead of standard Accuracy (measures how good model is in corectly predicting both positive and negative cases), because some of the datasets are imbalanced, and due to that fact "normal" accuracy may not be proper (cost of misclassification of minority class instance is higher than for majority class instance).
+
+The function returns a matrix with 5 described imputations as rows and 2 performance measures as columns.
+
+## Results
+
+```{r small data, results='hide'}
+# numery wszystkich zbiorów: 1018, 1590, 188, 23381, 27, 29, 38, 4, 40536, 41278, 55, 56, 6332, 944
+
+# numery używanych obecnie: 1590, 188, 23381, 27, 29, 38, 4, 40536, 55, 56, 6332, 944
+
+###################### GIT ZBIORKI: 944, 56, 55, 38, 27, 188, 29, 4
+
+evaluation_944 <- evaluate_imputations(dataset944,target944)
+evaluation_56 <- evaluate_imputations(dataset56,target56) 
+evaluation_55 <- evaluate_imputations(dataset55,target55)
+evaluation_38 <- evaluate_imputations(dataset38,target38) # długi missForest 
+evaluation_27 <- evaluate_imputations(dataset27,target27)
+evaluation_188 <- evaluate_imputations(dataset188,target188)
+evaluation_29 <- evaluate_imputations(dataset29,target29) 
+# działa przy ustawieniu pmm w mice, inaczej nie
+evaluation_4 <- evaluate_imputations(dataset4,target4) 
+# przy rm rows zeruje sie zbiór testowy, treningowy ma jeden wiersz 
+
+############################### PROBLEMY: 1018
+# evaluation_1018 <- evaluate_imputations(dataset1018,target1018)
+# przy rm rows zeruje sie zbiór testowy
+# przy mice nie działa dla "pmm"
+
+
+```
+
+```{r big data 1, results='hide'}
+
+############################### DUŻE ZBIORKI: 41278, 6332, 40536, 1590, 23381
+
+# na potrzeby duzych zbiorów w mice jest 1x1 , pmm i dodatkowy parametr zeby te weights sie nie wywalało 
+# wykomentowane bo długo sie mielą i wywalaja sesje R czasami xd
+# testowałam funkcję ręcznie na data_test dla kazdego zbioru bo dla nich jeszcze w miare sie robiło
+# wiec mysle ze na train tez powinno działać xd
+
+
+
+# ten zbiór jest zjebany bo mega duży, wywalił mi sesje 3 razy wiec moze go olejmy 
+# evaluation_41278 <- evaluate_imputationss(dataset41278,target41278) 
+
+```
+
+```{r big data 2, results='hide'}
+evaluation_40536 <- evaluate_imputations(dataset40536,target40536) 
+```
+
+```{r big data 3, results='hide'}
+# evaluation_23381 <- evaluate_imputations(dataset23381,target23381) # nie działa :( 
+```
+
+```{r big data 4, results='hide'}
+### do sprawdzenia, długo sie robi ale moze pojdzie 
+# evaluation_6332 <- evaluate_imputations(dataset6332,target6332) 
+# jak pojdzie to odkomentowac w miarach !!!
+# błąd - missing data in columns
+```
+
+```{r big data 5, results='hide'}
+evaluation_1590 <- evaluate_imputations(dataset1590,target1590) 
+```
+
+```{r, results= 'markup'}
+# 1590, 188, 23381, 27, 29, 38, 4, 40536, 55, 56, 6332, 944
+auc_combined<-as.data.frame(
+  rbind(
+  evaluation_1590$auc,
+  evaluation_188$auc,
+  # evaluation_23381$auc,
+  evaluation_27$auc,
+  evaluation_29$auc,
+  evaluation_38$auc,
+  evaluation_4$auc,
+  evaluation_40536$auc,
+  evaluation_55$auc,
+  evaluation_56$auc,
+  # evaluation_6332$auc,
+  evaluation_944$auc
+))
+colnames(auc_combined)<-c('insert_mean','mice_pmm','vim_knn','vim_hotdeck','softImpute')
+
+bacc_combined<-as.data.frame(
+  rbind(
+  evaluation_1590$bacc,
+  evaluation_188$bacc,
+  # evaluation_23381$bacc,
+  evaluation_27$bacc,
+  evaluation_29$bacc,
+  evaluation_38$bacc,
+  evaluation_4$bacc,
+  evaluation_40536$bacc,
+  evaluation_55$bacc,
+  evaluation_56$bacc,
+  # evaluation_6332$bacc,
+  evaluation_944$bacc
+))
+
+colnames(bacc_combined)<-c('insert_mean','mice_pmm','vim_knn','vim_hotdeck','softImpute')
+```
+
+Following table presents AUC results of the imputations. As it turned out, while most results are approximately equal 0.85, the range is from 0.55 to 1.
+
+```{r ,results='markup'}
+
+auc_combined <- as.data.frame(cbind(data_name, auc_combined))
+knitr::kable(auc_combined, caption = "Tab.2. AUC measure")
+```
+
+The next table presents BACC results with more balanced effect.
+
+```{r ,results='markup'}
+bacc_combined <- as.data.frame(cbind(data_name, bacc_combined))
+knitr::kable(bacc_combined, caption = "Tab.3. BACC measure")
+```
+
+To visualise difference between results of imputation methods, there are presented 2 boxlots. The visualisation shows not signifcant advantage of hotdeck imputation method and a little worse results of softImpute and knn methods.
+
+```{r ,results='markup'}
+boxplot(auc_combined[, -1], main = "AUC performance")
+boxplot(bacc_combined[, -1], main = "BACC performance")
+```
+
+At the end of the research, there is a plot presenting all previous information in more transparent way. This data presantation enables to observe the difference in results between datasets.
+
+```{r ,results='markup', fig.height=4, fig.width=8}
+library(reshape2)
+library(ggplot2)
+auc_point_data <- melt(auc_combined)
+
+ggplot(auc_point_data, aes(x = data_name, y = value, color = variable)) +
+  geom_jitter(width=0.15) +
+  theme(axis.text.x = element_text(angle = 45))+
+  scale_x_discrete(expand=c(0.1, 0.2))
+
+```
+
+# Conclusion
+
+
+There are no considerable differences between chosen methods of implementation as far as the performance of the rpart model is concerned.
+Boxplots show a slight advantage to inserting mean and mode and the hotdeck imputation from VIM, 
+but its mostly because they perform considerably better than the others on the `labor` dataset.
+
+```{r, results='markup'}
+knitr::kable(bacc_combined[6,], caption = "Extract from Tab.3")
+```
+
+The closer examination of this dataset shows the following:
+```{r, results='markup'}
+visdat::vis_dat(dataset4)
+```
+
+Most rows in this dataset have a missing value in at least one column.
+
+```{r, results='markup'}
+knitr::kable(naniar::miss_var_summary(dataset4), caption = "Tab.4. Procent of missing in labor dataset")
+
+```
+
+Columns with two highest procentages of missing values - standby.pay and wage.increase.third.year are both numeric features. Trying to predict the value of the feature based on only 15-25% od the data is a really demanding task,
+which may cause the more sophisticated imputation algorithms, such as Predictive Mean Matching or SoftImpute to be ineffective.
+In that situation, choosing a simpler method, such as mean insertion or random hotdeck imputation, in this exaple, showed to effect in better results.
+
+## Number of missing values in datasets
+
+Consider the column procent_missing in Tab.1, calculated as number of all cells with missing value, divided by number of all cells. 
+As you can see, the dataset `labor` has by far the highest percent of the missing values, over double the percent of the next one in this ranking. If we take a closer look at the second one in the ranking, `colic`, the balanced accuracy measure is also slightly higher in the mean insertion and hotdeck method, but this time softImpute did just as well as them.
+
+```{r, results='markup'}
+knitr::kable(bacc_combined[3,], caption = "Extract from Tab.3")
+```
+
+# Further examination
+
+In conclusion, the percent of the missing values in the dataset may have an effect on the infuence that choosing an imputation method has on the performance of the model. This could be the subject for further examination in this subject.
+
+# References 
+
+1. mice package https://cran.r-project.org/web/packages/mice/index.html
+
+2. VIM package https://cran.r-project.org/web/packages/VIM/index.html
+
+3. softImpute package https://cran.r-project.org/web/packages/softImpute/index.html
+
+4. mlr3 package https://mlr3.mlr-org.com/
