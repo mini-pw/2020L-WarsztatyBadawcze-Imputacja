@@ -1,0 +1,14 @@
+Podstawowe info:
+https://cran.r-project.org/web/packages/softImpute/index.html
+
+Dokumentacja:
+https://cran.r-project.org/web/packages/softImpute/softImpute.pdf
+https://www.rdocumentation.org/packages/softImpute/versions/1.4/topics/softImpute
+
+Po ludzku:
+https://web.stanford.edu/~hastie/swData/softImpute/vignette.html
+https://github.com/cran/softImpute/blob/master/vignettes/softImpute.Rmd [to co wyżej ale w .Rmd]
+https://rmisstastic.netlify.com/how-to/impute/missImp.pdf [strony 2-4]
+
+Trace-norm odświeżenie:
+https://mathoverflow.net/questions/278013/what-is-the-intuition-for-the-trace-norm-nuclear-norm
