@@ -33,7 +33,7 @@
 
 * 2020-05-26 - projekt
 
-* 2020-06-02 - projekt
+* 2020-06-02 - projekt (termin oddania całego projektu (artykułu))
 
 * 2020-06-09 - ?
 
