@@ -1,0 +1,314 @@
+---
+title: "softImpute"
+author: "Jakub Kosterna, Dawid Przybyliński, Hanna Zdulska"
+date: "25 marca 2020"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Wprowadzenie
+
+## Geneza i zawartość
+
+SoftImpute to nieduży i przydatny pakiet do uzupełniania macierzy, stworzony przez Trevor Hastiego (Stanford, autor wielu książek o statystyce). Wykorzystuje do tego **nuclear norm regularization**, znanej także jako **trace norm regularization** (pl: *regularyzacja norm śladowych*). Biblioteka implementuje: 
+
+  * funkcję *softImpute()* z dwoma przydatnymi algorytmami:
+
+    1. Iteracyjne obliczenie soft-thresholded SVD z wypełnionej macierzy (opcja *type="svd"*)
+
+    2. Uzupełnianie braków ramki szacunkami korzystając z alternating ridge regression (zwane popularniej w Europie *Tikhonov regularization*) (opcja *type="als"*)
+    
+  * *biscale()* - zoptymalizowane scale() działające również na niekompletnej macierzy, działające też szybko na bardzo dużych macierzach
+  
+  * dwie nowe klasy dla macierzy: *SparseplusLowRank* i *Incomplete*
+  
+## Zalety i wady
+
+Pakiet z założenia służy do uzupełniania macierzy, wymaga on nas konwersji z data.frame na klasę matrix. Operuje tylko na macierzach, co jest równocześnie zaletą - potrzebuje tylko pakiet Matrix:
+```{r, warning = FALSE}
+require(deepdep)
+plot_dependencies(deepdep("Amelia", depth = 2))
+plot_dependencies(deepdep("missMDA", depth = 2))
+plot_dependencies(deepdep("missForest", depth = 2))
+plot_dependencies(deepdep("VIM", depth = 2))
+plot_dependencies(deepdep("mice", depth = 2))
+plot_dependencies(deepdep("softImpute", depth = 2))
+```
+
+Zaletą pakietu jest fakt, że może obsługiwać zarówno małe, jak i bardzo duże macierze w relatywnie krótkim czasie, dzięki użyciu klasy Incomplete. Dla przykładu `softImpute` bez problemu dopasuje macierz rzędu 100 do danych Netflixa (480,189 użytkowników x 17,770 filmów co daje około 8.6 * 10^9 obserwacji, przy czym średnio jeden użytkownik ocenia tylko 200 filmów, co daje tylko 1.2% obserwacji ~10^8) w 3.3h
+
+# Jak działa algorytm? 
+
+## Soft-thresholded SVD
+Niech $X$  będzie dużą macierzą $m\times n$ z wieloma brakującymi wartościami. Niech $\Omega$ zawiera pary indeksów $(i,j)$ gdzie $X$ był zaobserwowany, i niech $P_\Omega(X)$ oznacza macierz z wartościami jak w $X$ w punktach z $\Omega$, a w pozostałych ma wartości 0. Zatem jeśli $X$ ma brakujące wartości w $\Omega^\perp$, $P_\Omega(X)$ oznaczyłoby NA jako 0. 
+ 
+Rozważmy wyrażenie
+$$\min_M\frac12\|P_\Omega(X)-P_\Omega(M)\|^2_F+\lambda\|M\|_*,$$
+gdzie $\|M\|_*$ to norma śladowa - suma wartości singularnych (osobliwych) macierzy $M$ (nucelar norm, trace norm), natomiast $\lambda$ jest parametrem.
+
+Niech $\widehat M$ będzie przybliżonym rozwiązaniem problemu. Definiujemy:
+$$Z=P_\Omega(X)+P_{\Omega^\perp}(\widehat M).$$
+
+$${\widehat M}=S_\lambda(Z)$$ 
+
+Operator $S_\lambda(Z)$ dla macierzy $Z$ wykonuje następujące instrukcje:
+
+1. Znajduje rozkład SVD dla $Z=U\Sigma V^T$, oraz $d_i$ - wartości singularne $Z$.
+2. Zaszumia wartości singularne: $d_i^*= (d_i-\lambda)_+$.
+3. Tworzy nową macierz $Z$: $S_\lambda(Z)=U\Sigma ^*V^T$.
+Dla dostatecznie dużych wartości $\lambda$, $\Sigma ^*$ będzie miała zmniejszony rząd, więc również i $U\Sigma ^*V^T$.
+
+Stąd tworząc kolejne macierze ${\widehat M}$ i $Z$, dostajemy algorytm iteracyjny. 
+
+## Rozkład SVD
+
+Każdą macierz A można przedstawić jako:
+
+$$ A = U\Sigma V^T $$
+gdzie: 
+
+$U, V$ - macierze ortogonalne
+
+$\Sigma$ - macierz diagonalna złożona z wartości singularnych $A$ 
+
+# Działanie
+
+## Odczyt
+
+```{r odczyt, message = FALSE, warning = FALSE}
+# install.packages("softImpute") # if not installed
+library(softImpute)
+```
+
+## Przykłady
+
+UWAGA! Tylko wartości numeryczne.
+
+```{r przyklad0, eval = FALSE}
+softImpute(matrix(c('a', 'b', 'a', NA, 'c', 'b'), 2, 3))
+```
+
+Wywołanie powyższej linii kodu zwróciłoby błąd.
+
+### Ogląd na prostej macierzy
+
+Wpierw w celu obycia ze składnią przetestujmy wpierw naszą podstawową funkcję na losowej macierzy 5 x 6 z wartościami z rozkładu normalnego i usuńmy z niej losowe 7 wartości.
+
+```{r przyklad1_1}
+set.seed(17)
+
+X = matrix(rnorm(30), 5, 6)
+X_del = X
+X_del[sample(1:30, 7, replace = FALSE)] = NA
+X_del
+```
+
+Utworzymy zmienną *fits* generującą dopasowanie w zależności od macierzy z usuniętymi wartościami, a następnie wypełnimy ją z pomocą funkcji *complete()*.
+
+```{r przyklad1_2}
+fits <- softImpute(X_del, trace = TRUE, type = "svd")
+completed <- complete(X_del, fits)
+```
+
+Zobaczmy macierz wejściową, wypełnioną, ich różnicę i miarę rmse.
+
+```{r przyklad1_3, warning = FALSE}
+X
+completed
+X - completed
+# install.packages("Metrics") # if not installed
+library(Metrics)
+rmse(X, completed)
+```
+
+### Metoda regularna
+
+W kolejnych krokach będziemy rozpatrywać macierz wygenerowaną w bardziej złożony sposób zawierającą już pewne nie-zupełnie-losowe własności matematyczne. Wpierw przygotujmy ją i usuńmy 30% wartości.
+
+```{r przyklad2_1}
+set.seed(101)
+n <- 200
+p <- 100
+J <- 50
+np <- n * p
+missfrac <- 0.3
+
+x <- matrix(rnorm(n*J), n, J) %*% matrix(rnorm(J*p), J, p) + matrix(rnorm(np), n, p) / 5
+sample(x, 20)
+
+ix <- seq(np)
+imiss <- sample(ix, np*missfrac, replace=FALSE)
+xna <- x
+xna[imiss] = NA
+```
+
+Przygotujemy także dwie maierze pomocnicze - *xMeans* i *xZeros* odpowiadające za matryce uzupełnione odpowiedni średnimi i zerami. Porównanie miar rezultatu *softImpute()* i owych dwóch da nam dobry ogląd jakości naszej funkcji.
+
+```{r przyklad2_2}
+xZeros <- xna
+xZeros[is.na(xZeros)] <- 0
+sample(xZeros, 10)
+
+Xmean <- mean(xZeros) * 10 / 7
+print(Xmean)
+xMeans <- xna
+xMeans[is.na(xMeans)] <- Xmean
+sample(xMeans, 10)
+```
+
+Metoda "klasyczna"
+
+```{r przyklad2_3}
+### uses regular matrix method for matrices with NAs
+fit1 <- softImpute(xna, rank = 50, lambda = 30)
+```
+
+W efekcie otrzymujemy 3 macierze:
+
+1. fit1\$u odpowiada za $U$
+2. fit1\$v odpowiada za $V$
+3. fit1\$d odpowiada za $\Sigma$
+
+...gdzie:
+
+* ${\displaystyle A=U\Sigma V^{T},}$
+
+* $U$ i $V$ – macierze ortogonalne (czyli ${\displaystyle U^{-1}=U^{T},}{\displaystyle U^{-1}=U^{T},} {\displaystyle V^{-1}=V^{T}}V^{-1}=V^T)$
+
+* $\Sigma$  – macierz diagonalna (przekątniowa), taka że ${\displaystyle \Sigma =\operatorname {diag} (\sigma _{i}),}{\displaystyle \Sigma =\operatorname {diag} (\sigma _{i}),}$ gdzie ${\displaystyle \sigma _{i}}\sigma _{i}$ – nieujemne wartości szczególne (osobliwe) macierzy ${\displaystyle A,}A$, zwyczajowo uporządkowane nierosnąco.
+
+```{r przyklad2_4, echo = FALSE}
+print("Wymiary V:")
+print(dim(fit1$v))
+print("Wymiary U:")
+print(dim(fit1$u))
+print("Wartości macierzy diagonalnej:")
+print(fit1$d)
+```
+
+Zobaczmy czy zaiste wygenerowane macierze spełniają warunek rozkładu SVD i średni błąd kwadratowy macierzy wejściowej i wygenerowanej przez *softImpute()*:
+
+```{r przyklad2_5}
+result <- (fit1$u * fit1$d) %*% t(fit1$v)
+rmse(result, x)
+rmsM <- rmse(x, xMeans)
+rmsM
+rms0 <- rmse(x, xZeros)
+rms0
+```
+
+W porównaniu do macierzy wejściowej uzupełnionej zerami i średnimi tak średnio bym powiedział. Ale w końcu robotę robi funkcja *complete()* - która uzupełnia braki macierzy wejściowej tymi z tej specjalnie generowanej. Oczywiście im mniejszy błąd - tym lepszy będzie rezultat. Ale czy aż dla 30% funkcja ogarnie coś sensownego?
+
+Satysfakcjonująco! A jak poradzi sobie funkcja *complete()*?
+
+```{r przyklad2_6}
+completed <- complete(xna, fit1)
+rms1 <- rmse(x, completed)
+rms1
+```
+
+Jak widać jak najbardziej! 30% brakujących wartości zostało uzupełnionych i wynik wyszedł zdecydowanie lepszy niż dla uzupełniania zerami czy średnimi.
+
+### Dla klasy *Incomplete*
+
+W dalszej kolejności efekt działania klasy *Incomplete* z użytkiem macierzy rzadkich.
+
+```{r przyklad3_1}
+### uses sparse matrix method for matrices of class "Incomplete"
+xnaC <- as(xna, "Incomplete")
+fit2 <- softImpute(xnaC, rank=50, lambda=30)
+```
+
+```{r przyklad3_2, echo = FALSE}
+print("Wymiary V:")
+print(dim(fit2$v))
+print("Wymiary U:")
+print(dim(fit2$u))
+```
+
+```{r przyklad3_3}
+result <- (fit2$u * fit2$d) %*% t(fit2$v)
+rmse(result, x)
+completed <- complete(xna, fit2)
+rms2 <- rmse(x, completed)
+rms2
+```
+
+### Algorytm *svd*
+
+... czyli iteracyjne obliczanie *soft-thresholded SVD* z wypełnionej macierzy.
+
+```{r przyklad4}
+### uses "svd" algorithm
+fit3 <- softImpute(xnaC, rank=50, lambda=30, type="svd")
+
+result <- (fit3$u * fit3$d) %*% t(fit3$v)
+rmse(result, x)
+completed <- complete(xna, fit3)
+rms3 <- rmse(x, completed)
+rms3
+```
+
+### biScale()
+
+Całkiem ładny wynik. Zobaczmy jeszcze *softImpute()* z użyciem *biScale()*.
+
+```{r przyklad5_1}
+### first scale xna
+xnas <- biScale(xna)
+```
+
+Czy faktycznie nasza macierz została poprawnie przeskalowana?
+
+```{r przyklad5_2}
+mean(xnas[!is.na(xnas)])
+var(xnas[!is.na(xnas)])
+```
+
+Wszystko jest w porządku! Średnia wyszła niemalże 0, a wariancja - niemalże 1. Otrzymaliśmy więc poprawne przeskalowanie.
+
+```{r przyklad5_3}
+fit4 <- softImpute(xnas, rank=50, lambda=10)
+completed <- complete(xna, fit4)
+rms4 <- rmse(x, completed)
+rms4
+```
+
+### impute() pod lupą
+
+Możemy też przyjrzeć się lepiej temu co siedzi pod *complete()* wyświetlając efekt samej funkcji *impute()*, z której *complete()* korzysta.
+
+W dokumentacji czytamy: *impute returns a vector of predictions, using the reconstructed low-rank matrix representation represented by object. It is used by complete, which returns a complete matrix with all the missing values imputed.*
+
+```{r przyklad6}
+impute(fit4, i = c(1, 3, 7), j = c(2, 5, 10))
+impute(fit4, i = c(1, 3, 7), j = c(2, 5, 10), unscale = FALSE) # ignore scaling and centering
+```
+
+### Podsumowanie
+
+Na dobry koniec porównajmy jeszcze miary błędów średniokwadratowych dla zaproponowanych metod imputacji macierzy:
+
+```{r przyklady_podsumowanie}
+summary <- data.frame(rms1, rms2, rms3, rms4)
+colnames(summary) <- c("regular", "macierze rzadkie + incomplete", "svd", "z bi-skalowaniem")
+summary
+
+zerosMeans <- data.frame(rms0, rmsM)
+colnames(zerosMeans) <- c("zeros", "means")
+zerosMeans
+```
+
+Sukces!
+
+# Bibliografia - poczytaj wiecej
+ * [Mazumder et al (2010)](http://web.stanford.edu/~hastie/Papers/mazumder10a.pdf)
+ * [Hastie et al (2014)](http://arxiv.org/abs/1410.2596)
