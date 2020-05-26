@@ -162,3 +162,7 @@ Kiedy uda się umieścić artykuł w pliku `book.bib` odwoływać się do prac m
 
 ## Blog (15 pkt.)
 Informacje w [repzytorium Wykładu](https://github.com/mini-pw/2020L-WarsztatyBadawcze)
+
+[Repozytorium z blogiem](https://github.com/mini-pw/2020L-WB-Blog)
+
+[Link do bloga](https://mini-pw.github.io/2020L-WB-Blog/)
