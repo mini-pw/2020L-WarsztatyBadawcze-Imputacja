@@ -33,7 +33,7 @@
 
 * 2020-05-26 - projekt
 
-* 2020-06-02 - projekt
+* 2020-06-02 - projekt (termin oddania całego projektu (artykułu))
 
 * 2020-06-09 - ?
 
@@ -149,8 +149,20 @@ Lub do PDF
 ```
 bookdown::render_book('./', 'bookdown::pdf_book')
 ```
+#### Jak cytować w ebooku?
+
+Cytować będziemy używając formatu [BibTeX](http://www.bibtex.org/).
+Informacje o cytowanych artykułach trzeba umieścić w pliku `book.bib` znajdującym się w repozytorium z książką. Są tam przykładowe prace w formacie BiBTex. 
+
+Zazwyczaj na stronie czasopisma da się wygenerować taki plik BiBteXowy dla artykułu, czasem jest to dosyć ukryte, najlepiej szukać przycisku z napisem "citation". Gdyby się nie udało polecam poszukać numeru doi artykułu i skorzystać ze strony [doi2bib](https://www.doi2bib.org/).
+
+Kiedy uda się umieścić artykuł w pliku `book.bib` odwoływać się do prac można przez `[@nazwa]`, gdzie nazwa to ciąg znaków z pierwszego pola z BiBteXa. Przykład użycia jest w pliku `index.Rmd` (cytowanie rlang).
 
 
 
 ## Blog (15 pkt.)
 Informacje w [repzytorium Wykładu](https://github.com/mini-pw/2020L-WarsztatyBadawcze)
+
+[Repozytorium z blogiem](https://github.com/mini-pw/2020L-WB-Blog)
+
+[Link do bloga](https://mini-pw.github.io/2020L-WB-Blog/)

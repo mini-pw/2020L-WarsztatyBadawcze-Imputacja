@@ -8,7 +8,6 @@ foreach
 iterators
 itertools
 missForest
-rpart
 OpenML
 jsonlite
 readr
@@ -20,7 +19,8 @@ tidyr
 purrr
 stringr
 forcats
+rpart
 knitr
-scales
 reshape
+scales
 gridExtra
