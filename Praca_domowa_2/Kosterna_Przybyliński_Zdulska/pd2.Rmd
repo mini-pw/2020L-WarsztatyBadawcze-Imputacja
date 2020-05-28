@@ -9,21 +9,21 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
 ## Abstract
 
-Choosing the best-suited imputation is the daily dilemma of every data scientist. Some of they believe the crux lies in the most advanced and sophisticated, the others trust the simplest of all possible.
+Choosing the best-suited imputation is the daily dilemma of every data scientist. Some of them believe the crux lies in the most advanced and sophisticated, the others trust the simplest of all possible.
 
-In this document we will try to find one objectively the finest imputation method by testing five of popular ones on eight specially selected data sets prepared for these operations.
+In this document we will try to find the one, objectively finest imputation method by testing five of popular ones on forteen specially selected data sets prepared for these operations.
 
 ## Imputation functions
 
 We'll look at the two simple imputation methods with the following short markings:
 
-1. *I1* / *modeMedian* - missing data supplemented with medians from individual columns
-2. *I2* / *removeRows* - all the rows with any nonexistent values removed
+1. *modeMedian* - missing data supplemented with medians from individual columns
+2. *removeRows* - all the rows with any nonexistent values removed
 
 ```{r imputation_basic_functions, cache = TRUE}
 imputation_mode_median <- function(df){
@@ -55,9 +55,9 @@ imputation_remove_rows <- function(df){
 
 ... and also three more advanced algorithms from popular libraries:
 
-3. *I3* - *mice*
-4. *I4* - *vim*
-5. *I5* - *missForest*
+3. *mice* ^1^ - standard imputation with *maxit* parameter of value 0 and default 5 number of imputed datasets
+4. *VIM* ^2^ - default *kNN* implementation
+5. *missForest* ^3^ - simple imputation offered by the package
 
 ```{r imputation_advanced_functions, message = FALSE, warning = FALSE, cache = TRUE}
 library(mice)
@@ -85,7 +85,7 @@ imputation_fun_missForest <- function(df){
 
 ## Reading datasets
 
-The eight data frames on which we will test these above were taken from **OpenML100 collection** and were corrected specifically for this research. They can be found under the following identifiers with the following names:
+The fourteen data frames on which we will test these above were taken from **OpenML100 collection** and were corrected specifically for this research. They can be found under the following identifiers with the following names:
 
 * 1590 - *adult*
 * 188 - *eucalyptus*
@@ -101,9 +101,6 @@ The eight data frames on which we will test these above were taken from **OpenML
 * 4 - *labor*
 * 55 - *hepatitis*
 * 944 - *echoMonths*
-
-
-
 
 Those above have been placed in individual directories identified by id in the prepared directory.
 
@@ -137,7 +134,7 @@ read_dataset <- function(openml_id, dataset_dir = DFT_REPO_DATASET_DIR){
 }
 ```
 
-In order to read all the eight datasets we will use other function, which will return a dataframe containing all the important informations about the test matrices.
+In order to read all datasets we will use another function, which will return a dataframe containing all the important informations about the test matrices.
 
 ```{r read_all_datasets, cache = TRUE}
 read_all_datasets <- function(dataset_dir = DFT_REPO_DATASET_DIR){
@@ -155,6 +152,37 @@ read_all_datasets <- function(dataset_dir = DFT_REPO_DATASET_DIR){
   return(unname(t(datasets_combined)))
 }
 ```
+
+All of datasets contain missing information denoted as NA and differ in size, number of features, number of observations and percentage of missing data. Table below decribes those informations.
+
+```{r dataset description, message = FALSE, warning=FALSE, cache = TRUE}
+
+dfs <- read_all_datasets()
+
+ids <- lapply(dfs, function(x){x$id})
+names <- lapply(dfs, function(x){x$data_name})
+n_inst <- lapply(dfs, function(x){x$number_of_instances})
+n_features <- lapply(dfs, function(x){x$number_of_features})
+number_of_numeric_features <- lapply(dfs, function(x){x$number_of_numeric_features})
+number_of_categorical_features <- lapply(dfs, function(x){x$number_of_categorical_features})
+number_of_missings <- lapply(dfs, function(x){x$number_of_missings})
+proc_missing <- lapply(dfs, function(x){x$number_of_missing/(x$number_of_instances * x$number_of_features)})
+number_of_instances_with_missings <- lapply(dfs, function(x){x$number_of_instances_with_missings})
+number_of_features_with_missings <- lapply(dfs, function(x){x$number_of_features_with_missings})
+
+#fix wrong json
+names[[10]] <- "okcupid-stem"
+
+table <- data.frame("id" = unlist(ids), 
+                    "name" = unlist(names),
+                    "number_of_instances" = unlist(n_inst),
+                    "number_of_features" = unlist(n_features),
+                    "number_of_missing" = unlist(number_of_missings),
+                    "procentage_of_missing" = round(unlist(proc_missing)*100,2))
+
+knitr::kable(table)
+```
+
 
 ## Metrics functions
 
@@ -181,6 +209,8 @@ For each machine learning model after every imputation we will get the confusion
 * *precision* - $\frac{TP}{TP+FP}$
 * *recall* - $\frac{TP}{TP+FN}$
 * *f1* - $2*\frac{Recall * Precision}{Recall + Precision}$
+
+These four will give us good information about the quality of imputation and give us a good comparison. We get simple and clear information about which observations are well classified, which ones are wrong and how they should be. Considering the number of sets to consider and their different properties, even when it comes to balancing, comparing these four measures, the fact that it will show the pros and cons of given imputations, will additionally be good to compare them.
 
 ```{r metrics, cache = TRUE}
 get_confusion_matrix <- function(test, pred){
@@ -215,20 +245,24 @@ f1 <- function(confusion_matrix){
 
 ## Imputation results
 
+The results of our work will be checked using the implemented classification tree algorithm from the *rpart ^4^* package. We have chosen this algorithm because this classifier works well for almost any type of data - and for the most part numerical, and for the most part factors, it can handle and make a decent model. The use of an algorithm using, for example, the distance from the nearest points or separating sets by clusters would not be recommended for each data frame, and given the diversity, here rpart should do a good job.
+
 ```{r get_result_function, warning = FALSE, message = FALSE, cache = TRUE}
 library(rpart)
 get_result <- function(dataset_list, imputation_fun){
   
 dataset <- dataset_list$dataset
 name_of_target <- dataset_list$target
-# imputation
-imputation_start = Sys.time() # start to measure time
-imputated_dataset <- imputation_fun(dataset) 
-imputation_stop = Sys.time() # end measuring time
 # train test split
 train_test <- train_test_split(imputated_dataset, 0.8)
 train <- as.data.table(train_test[1])
 test <- as.data.table(train_test[2])
+# imputation
+imputation_start = Sys.time() # start to measure time
+train <- imputation_fun(train)
+test <- imputation_fun(test)
+imputation_stop = Sys.time() # end measuring time
+imputed_dataset <- cbind(train, test)
 # modelling
 vars <- colnames(dataset)[colnames(dataset)!=name_of_target]
 my_formula <- as.formula(paste(name_of_target, paste(vars, collapse=" + "), sep=" ~ "))
@@ -265,7 +299,8 @@ imputations <- list(imputation_fun_vim, imputation_fun_missForest,
 targets <- lapply(data_all, function(d){d$target})
 ```
 
-Here are the results:
+Also, it is worth mentioning that removing rows computes a different dataset compared to other techniques. Because of that one needs to be cautious while analysing and comparing remove_rows to other imputation methods. For one's own research it is probably worth replacing removing rows with removing columns for datasets with few features containing missing values. 
+Here are the results. NA indicates that method returned error:
 
 ```{r warning=FALSE, cache = TRUE}
   library(knitr)
@@ -386,10 +421,18 @@ ggplot(data=imptimes, aes(x = dataset_id, y = value, color = variable, shape = v
        color = "Legend") +
   scale_color_manual(name = "imputation name", values = colors) +
   theme(legend.position="right",
-        plot.title = element_text(hjust = 0.5))
+        plot.title = element_text(hjust = 0.5)) +
+  #scale_colour_manual(name = "Treatment & State",
+  #                    labels = c("Control, Non-F", "Control, Flwr", "Exclosure, Non-F", "Exclosure, Flwr"),
+  #                    values = c("blue", "red", "blue", "red")) +   
+  scale_shape_manual(name = "imputation name",
+                     values = 15:19L)
+
+
+
 ```
 
-Judging by the logarithmic scale, no surprise removing rows and median replenishment are definetely the fastest methods, with removing rows being several times faster. Looking at more advanced ones, definetely *VIM* rules - probably usually something like 5-10 times faster than *mice* and *missForest*. These last two are quite slow, with the missforest appearing to be slightly faster.
+Judging by the logarithmic scale, no surprise removing rows and median replenishment are definitely the fastest methods, with removing rows being several times faster. Looking at more advanced ones, definitely *VIM* rules - probably usually something like 5-10 times faster than *mice* and *missForest*. These last two are quite slow, with the missforest appearing to be slightly faster.
 
 What do the numbers say?
 
@@ -411,11 +454,11 @@ imputation_times_measures <- data.frame(imputation_names, means, medians, stDevi
 knitr::kable(imputation_times_measures)
 ```
 
-Taking into acount all the imputations which have been implemented, we can clearly see that two easy ones really stand out. However, we cannot fully compare the other three - due to the fact that missForest failed on three data sets, and mice - up to seven.
+Taking into account all the imputations which have been implemented, we can clearly see that two easy ones really stand out. However, we cannot fully compare the other three - due to the fact that missForest failed on three data sets, and mice - up to seven.
 
 Considering such a large spread of data size, it is very interesting difference between the median and the average for VIM - the first is almost seven minutes, the second - barely one and a half seconds. In general, however, it is certainly much longer than methods for removing incomplete rows and filling with median.
 
-Let's count these four measures again, but only for those datasats for which all imputations were successful - these are ids 27, 38, 55, 56, 944, 188  (dataset with id 4 softened on removing rows containing any missing items, because each of its poems had some missing items).
+Let's count these four measures again, but only for those datasets for which all imputations were successful - these are ids 27, 38, 55, 56, 944, 188  (dataset with id 4 softened on removing rows containing any missing items, because each of its poems had some missing items).
 
 ```{r imputation_times_measures_little, cache = TRUE}
 dataset_ids_fullimp <- c(2, 5, 8, 11, 13, 14)
@@ -438,7 +481,7 @@ imputation_times_measures_fullimp <- data.frame(imputation_names, means, medians
 knitr::kable(imputation_times_measures_fullimp)
 ```
 
-Now we have better results to compare. Taking into account the mean time, definetely *missForest* is the slowest, but also its standard deviaton is incomparably huge - this is probably due to the fact that for smaller sets it is doing well, but due to its complexity, its slowdown can be seen for very large datasets. As shown in the chart, *VIM* is definitely better for quick calculations than *missForest* and *mice*, and considering the median, *mice* is comparable to *missForest* - so you can expect that for small data sets there is not much difference between them, and a lot of time we definitely need to devote to these larger data frames.
+Now we have better results to compare. Taking into account the mean time, definitely *missForest* is the slowest, but also its standard deviation is incomparably huge - this is probably due to the fact that for smaller sets it is doing well, but due to its complexity, its slowdown can be seen for very large datasets. As shown in the chart, *VIM* is definitely better for quick calculations than *missForest* and *mice*, and considering the median, *mice* is comparable to *missForest* - so you can expect that for small data sets there is not much difference between them, and a lot of time we definitely need to devote to these larger data frames.
 
 ## Comparing modeling times
 
@@ -508,7 +551,7 @@ modeling_times_measures <- data.frame(imputation_names, means, medians, stDeviat
 knitr::kable(modeling_times_measures)
 ```
 
-The powerful but also fast tree classifier from *rpast* (both looking at the median and average) counted everything in less than a second. The largest fluctuations can be observed for the method of *median* and *VIM* supplementation - for them the standard deviation is less than two and a half seconds. You can also see very similar all three average measures for these two, probably due to the operation of *VIM* as a result giving similar effects as the *median*. Interestingly, unbeatably the fastest tree was built for the *mice* algorithm ... but wait! Maybe we'd better compare only the imputations for those sets for which we've done everything.
+The powerful but also fast tree classifier from *rpart* (both looking at the median and average) counted everything in less than a second. The largest fluctuations can be observed for the method of *median* and *VIM* supplementation - for them the standard deviation is less than two and a half seconds. You can also see very similar all three average measures for these two, probably due to the operation of *VIM* as a result giving similar effects as the *median*. Interestingly, unbeatably the fastest tree was built for the *mice* algorithm ... but wait! Maybe we'd better compare only the imputations for those sets for which we've done everything.
 
 ```{r modeling_times_measures_little, cache = TRUE}
 means <- rep(NA, nimputations)
@@ -680,7 +723,7 @@ grid.arrange(accPlot +
                 axis.text.x = element_blank(),
                 axis.title = element_blank()),
              nrow = 2,
-             top = "Measues values for different datasets' imputations")
+             top = "Measures values for different datasets' imputations")
 ```
 
 ... where colors of points represent: <p style="color:orange">*1. **remove***</p>
@@ -689,7 +732,7 @@ grid.arrange(accPlot +
 
 Looking only at these plots, it is difficult to come up with something at first glance - for each time I come to some conclusion, results for a few other datasets that I did not pay attention to deny it. For sure we can already say that the scatter of results is rather large and analyzing the measures of concentration, we probably will not clearly indicate the best or the worst imputation.
 
-Visualizations often help and ever give answers to the questions, but this time the best option will be definetely to calculate some measures. What means, medians and standard deviations give these measures?
+Visualizations often help and ever give answers to the questions, but this time the best option will be definitely to calculate some measures. What means, medians and standard deviations give these measures?
 
 ```{r measures_measures, cache = TRUE}
 accMeans <- rep(NA, nimputations)
@@ -811,7 +854,7 @@ Having the table above, we can't say that *missForest* is definitely the best. L
 
 Standard deviations are pretty balanced and it's hard to tell anything clever about it - especially considering the small number of collections. Rather, nothing stands out.
 
-Let's visualize dataset's model result's measures.
+Let's visualize dataset's model results measures.
 
 ```{r model_measures_plots, message = FALSE, cache = TRUE}
 colors2 <- c("mean" = "blue", "median" = "orange")
@@ -913,3 +956,13 @@ Looking at the results, *VIM* and *missForest* give quite similar numbers in ter
 ## Conclusion
 
 The experiment can be considered successful when it comes to the datasets and tools made available to us - calculated measures, visualizations made, as well as conclusions led us, among others, to the intuition that probably *VIM* is really a very good package, supplementing the missing values with medians from columns is not at all is such a stupid idea as it may seem, and *mice* can be thrown in the bin. Unfortunately, it is impossible to draw a wise conclusion based on such a small number of tested data - admittedly as many as 14 sets, problems with imputations on some of them or too small dataframes not giving a satisfactory answer and assumptions that respectful statistics would praise. Nevertheless, above code is certainly very valuable and for more data sets it could confirm one or another belief - therefore we can probably say that we have achieved scientific success!
+
+### References
+
+*^1^mice: Multivariate Imputation by Chained Equations, package created by Stef van Buuren, Karin Groothuis-Oudshoorn, Gerko Vink, Rianne Schouten, Alexander Robitzsch, Lisa Doove, Shahab Jolani, Margarita Moreno-Betancur, Ian White, Philipp Gaffert, Florian Meinfelder, Bernie Gray*
+
+*^2^VIM: Visualization and Imputation of Missing Values, package created by Matthias Templ, Alexander Kowarik, Andreas Alfons, Bernd Prantner*
+
+*^3^missForest: Nonparametric Missing Value Imputation using Random Forest Daniel J. Stekhoven*
+
+*^4^rpart: Recursive Partitioning and Regression Trees, package by Terry Therneau, Beth Atkinson, Brian Ripley*
